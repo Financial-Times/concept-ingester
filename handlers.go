@@ -8,7 +8,6 @@ import (
 )
 
 type httpHandlers struct {
-	cacheControlHeader string
 	baseUrlMap map[string]string
 }
 

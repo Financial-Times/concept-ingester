@@ -6,9 +6,7 @@ import (
 
 	"fmt"
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
@@ -20,7 +18,6 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"io"
 )
 
 func main() {
@@ -30,13 +27,11 @@ func main() {
 	services := app.StringOpt("services-list", "__organisations-rw-neo4j-blue,people-rw-neo4j-blue", "writer services")
 	port := app.StringOpt("port", "8080", "Port to listen on")
 	env := app.StringOpt("env", "semantic-up.ft.com", "environment this app is running in")
-	cacheDuration := app.StringOpt("cache-duration", "30s", "Duration Get requests should be cached for. e.g. 2h45m would set the max-age value to '7440' seconds")
 
-	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://kafka-proxy-pr-uk-t-1.glb.ft.com,https://kafka-proxy-pr-uk-t-2.glb.ft.com", "Comma separated kafka proxy hosts for message consuming.")
+	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://proxy-address", "Comma separated kafka proxy hosts for message consuming.")
 	consumerGroupID := app.StringOpt("consumer_group_id", "idiConcept", "Kafka group id used for message consuming.")
 	consumerOffset := app.StringOpt("consumer_offset", "", "Kafka read offset.")
 	consumerAutoCommitEnable := app.BoolOpt("consumer_autocommit_enable", false, "Enable autocommit for small messages.")
-	consumerAuthorizationKey := app.StringOpt("consumer_authorization_key", "basic-auth-key", "The authorization key required to UCS access.")
 
 	topic := app.StringOpt("topic", "Concept", "Kafka topic subscribed to")
 
@@ -45,7 +40,6 @@ func main() {
 	consumerConfig.Group = *consumerGroupID
 	consumerConfig.Topic = *topic
 	consumerConfig.Offset = *consumerOffset
-	consumerConfig.AuthorizationKey = *consumerAuthorizationKey
 	consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 
 	//TODO can we use custom headers
@@ -65,7 +59,7 @@ func main() {
 	servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *env)
 
 	// Could take the header to router
-	baseUrlMap := baseUrlMap{servicesMap}
+	httpConfigurations := httpConfigurations{servicesMap}
 
 	app.Action = func() {
 		if *env != "semantic-up.ft.com"  {
@@ -81,10 +75,10 @@ func main() {
 		}
 
 		log.Infof("concept-ingester-go-app will listen on port: %s, connecting to: %s", *port)
-		runServer(baseUrlMap.baseUrlMap, *port, *cacheDuration, *env)
+		runServer(httpConfigurations.baseUrlMap, *port, *env)
 	}
 
-	consumer := queueConsumer.NewConsumer(consumerConfig, baseUrlMap.readMessage, http.Client{})
+	consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, http.Client{})
 	go consumeKafkaMessages(consumer)
 
 	log.SetLevel(log.InfoLevel)
@@ -107,16 +101,9 @@ func createServicesMap(services string, messageTypeMap map[string]string, env st
 	return servicesMap
 }
 
-func runServer(baseUrlMap map[string]string, port string, cacheDuration string, env string) {
-	var cacheControlHeader string
+func runServer(baseUrlMap map[string]string, port string, env string) {
 
-	if duration, durationErr := time.ParseDuration(cacheDuration); durationErr != nil {
-		log.Fatalf("Failed to parse cache duration string, %v", durationErr)
-	} else {
-		cacheControlHeader = fmt.Sprintf("max-age=%s, public", strconv.FormatFloat(duration.Seconds(), 'f', 0, 64))
-	}
-
-	httpHandlers := httpHandlers{cacheControlHeader, baseUrlMap}
+	httpHandlers := httpHandlers{baseUrlMap}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -187,23 +174,23 @@ func consumeKafkaMessages(consumer queueConsumer.Consumer) {
 	wg.Wait()
 }
 
-type baseUrlMap struct {
+type httpConfigurations struct {
 	baseUrlMap map[string]string
 }
 
-func (um baseUrlMap) readMessage(msg queueConsumer.Message) {
-	body := strings.NewReader(msg.Body)
-	fmt.Printf("Message body is %v", body)
-	headers := msg.Headers
-	fmt.Printf("Message headers are %v", headers)
+func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 	var ingestionType string
-	for k, v := range headers {
+	var uuid string
+	for k, v := range msg.Headers {
 		if k == "Message-Type" {
 			ingestionType = v
 		}
-	}
+		if k == "Message-Id" {
+			uuid = v
+		}
+ 	}
 	fmt.Printf("Ingestion Type is %v", ingestionType)
-	_, err, writerUrl := sendToWriter(ingestionType, body, um.baseUrlMap)
+	_, err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap)
 
 	if err == nil {
 		log.Infof("Successfully written msg: %v to writer: %v", msg, writerUrl)
@@ -212,14 +199,18 @@ func (um baseUrlMap) readMessage(msg queueConsumer.Message) {
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, urlMap map[string]string) (resp *http.Response, err error, writerUrl string) {
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string) (resp *http.Response, err error, writerUrl string) {
 	for messageType, baseUrl := range urlMap {
 		if messageType == ingestionType {
 			writerUrl = resolveEndpoint(ingestionType, baseUrl)
 		}
 	}
-	fmt.Printf("Writer Url is %v", writerUrl)
-	resp, err = http.Post(writerUrl, "application/json", io.Reader(msgBody))
+	fullUrl := writerUrl + "/" + uuid
+
+	client := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 50,},}
+	request, err := http.NewRequest("PUT", fullUrl, msgBody)
+	request.ContentLength = -1
+	resp, err = client.Do(request)
 	return resp, err, writerUrl
 }
 
@@ -245,7 +236,7 @@ func resolveEndpoint(ingestionType string, baseUrl string) (writerUrl string) {
 		return baseUrl + "/genres"
 	case "locationIngestion":
 		return baseUrl + "/locations"
-	default: //TODO
+	default:
 		return "unknown message type"
 	}
 }
