@@ -24,9 +24,9 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 	log.Printf("Application started with args %s", os.Args)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
-	services := app.StringOpt("services-list", "__organisations-rw-neo4j-blue,people-rw-neo4j-blue", "writer services")
+	services := app.StringOpt("services-list", "organisations-rw-neo4j-blue,people-rw-neo4j-blue", "writer services")
 	port := app.StringOpt("port", "8080", "Port to listen on")
-	env := app.StringOpt("env", "semantic-up.ft.com", "environment this app is running in")
+	env := app.StringOpt("env", "local", "environment this app is running in")
 
 	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://proxy-address", "Comma separated kafka proxy hosts for message consuming.")
 	consumerGroupID := app.StringOpt("consumer_group_id", "idiConcept", "Kafka group id used for message consuming.")
@@ -62,7 +62,7 @@ func main() {
 	httpConfigurations := httpConfigurations{servicesMap}
 
 	app.Action = func() {
-		if *env != "semantic-up.ft.com"  {
+		if *env != "local"  {
 			f, err := os.OpenFile("/var/log/apps/concept-ingester-go-app.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0755)
 			if err == nil {
 				log.SetOutput(f)
@@ -89,10 +89,11 @@ func main() {
 func createServicesMap(services string, messageTypeMap map[string]string, env string) (map[string]string){
 	stringSlice := strings.Split(services, ",")
 	servicesMap := make(map[string]string)
+	tunnel := env + "-tunnel-up.ft.com"
 	for _, service := range stringSlice {
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
-				baseUrl := "https://" + env + "/" + service
+				baseUrl := "https://" + tunnel + "/__" + service
 				servicesMap[messageType] = baseUrl
 				fmt.Printf("Added url %v to map:", baseUrl)
 			}
@@ -153,8 +154,6 @@ func router(hh httpHandlers) http.Handler {
 }
 
 func consumeKafkaMessages(consumer queueConsumer.Consumer) {
-
-	log.Print("Splat!")
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -163,13 +162,10 @@ func consumeKafkaMessages(consumer queueConsumer.Consumer) {
 		wg.Done()
 	}()
 
-	log.Print("Thwomp!")
 	ch := make(chan os.Signal)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 
-
-	log.Print("Biff!")
 	consumer.Stop()
 	wg.Wait()
 }
