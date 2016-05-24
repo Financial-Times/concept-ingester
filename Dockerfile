@@ -1,5 +1,7 @@
 FROM alpine:3.3
+
 ADD *.go .git /concept-ingester/
+
 RUN apk add --update bash \
   && apk --update add git go \
   && cd concept-ingester\
@@ -24,4 +26,4 @@ RUN apk add --update bash \
   && mv concept-ingester /app \
   && apk del go git \
   && rm -rf $GOPATH /var/cache/apk/*
-CMD exec /app --services-list=$SERVICES --port=$APP_PORT --env=local --consumer_proxy_address=$PROXY_ADDR --consumer_group_id=$GROUP_ID --consumer_offset= --consumer_autocommit_enable=false --topic=$TOPIC
+CMD exec /app --services-list=$SERVICES --port=$APP_PORT --env=$ENV --consumer_proxy_address=$PROXY_ADDR --consumer_group_id=$GROUP_ID --consumer_autocommit_enable=false --topic=$TOPIC
