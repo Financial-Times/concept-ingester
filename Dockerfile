@@ -1,7 +1,5 @@
 FROM alpine:3.3
-
-ADD *.go /concept-ingester/
-
+ADD *.go .git /concept-ingester/
 RUN apk add --update bash \
   && apk --update add git go \
   && cd concept-ingester\
