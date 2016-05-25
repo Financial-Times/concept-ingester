@@ -62,18 +62,6 @@ func main() {
 	httpConfigurations := httpConfigurations{servicesMap}
 
 	app.Action = func() {
-		if *env != "local"  {
-			f, err := os.OpenFile("/var/log/apps/concept-ingester-go-app.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0755)
-			if err == nil {
-				log.SetOutput(f)
-				log.SetFormatter(&log.TextFormatter{DisableColors: true})
-			} else {
-				log.Fatalf("Failed to initialise log file, %v", err)
-			}
-
-			defer f.Close()
-		}
-
 		log.Infof("concept-ingester-go-app will listen on port: %s, connecting to: %s", *port)
 		runServer(httpConfigurations.baseUrlMap, *port, *env)
 	}
