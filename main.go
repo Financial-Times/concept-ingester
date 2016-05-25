@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
 )
 
 func main() {
@@ -34,13 +35,6 @@ func main() {
 	consumerAutoCommitEnable := app.BoolOpt("consumer_autocommit_enable", false, "Enable autocommit for small messages.")
 
 	topic := app.StringOpt("topic", "Concept", "Kafka topic subscribed to")
-
-	consumerConfig := queueConsumer.QueueConfig{}
-	consumerConfig.Addrs = strings.Split(*consumerAddrs, ",")
-	consumerConfig.Group = *consumerGroupID
-	consumerConfig.Topic = *topic
-	consumerConfig.Offset = *consumerOffset
-	consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 
 	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string {
@@ -62,12 +56,38 @@ func main() {
 	httpConfigurations := httpConfigurations{servicesMap}
 
 	app.Action = func() {
-		log.Infof("concept-ingester-go-app will listen on port: %s, connecting to: %s", *port)
-		runServer(httpConfigurations.baseUrlMap, *port, *env)
-	}
+		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-	consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, http.Client{})
-	go consumeKafkaMessages(consumer)
+		consumerConfig := queueConsumer.QueueConfig{}
+		consumerConfig.Addrs = strings.Split(*consumerAddrs, ",")
+		consumerConfig.Group = *consumerGroupID
+		consumerConfig.Topic = *topic
+		consumerConfig.Offset = *consumerOffset
+		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
+
+		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, http.Client{})
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go func() {
+			consumer.Start()
+			wg.Done()
+		}()
+
+		go runServer(httpConfigurations.baseUrlMap, *port, *env)
+
+		ch := make(chan os.Signal)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+
+		<-ch
+		log.Println("Shutting down application...")
+
+		consumer.Stop()
+		wg.Wait()
+
+		log.Println("Application closing")
+	}
 
 	log.SetLevel(log.InfoLevel)
 	log.Infof("Application started with args %s", os.Args)
@@ -140,24 +160,6 @@ func router(hh httpHandlers) http.Handler {
 
 	return monitoringRouter
 }
-
-func consumeKafkaMessages(consumer queueConsumer.Consumer) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go func() {
-		consumer.Start()
-		wg.Done()
-	}()
-
-	ch := make(chan os.Signal)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	<-ch
-
-	consumer.Stop()
-	wg.Wait()
-}
-
 type httpConfigurations struct {
 	baseUrlMap map[string]string
 }
