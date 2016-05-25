@@ -24,7 +24,7 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 	log.Printf("Application started with args %s", os.Args)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
-	services := app.StringOpt("services-list", "organisations-rw-neo4j-blue,people-rw-neo4j-blue", "writer services")
+	services := app.StringOpt("services-list", "services", "writer services")
 	port := app.StringOpt("port", "8080", "Port to listen on")
 	env := app.StringOpt("env", "local", "environment this app is running in")
 

@@ -26,4 +26,4 @@ RUN apk add --update bash \
   && mv concept-ingester /app \
   && apk del go git \
   && rm -rf $GOPATH /var/cache/apk/*
-CMD exec /app --services-list=$SERVICES --port=$APP_PORT --env=$ENV --consumer_proxy_address=$PROXY_ADDR --consumer_group_id=$GROUP_ID --consumer_autocommit_enable=false --topic=$TOPIC
+CMD exec /app --services-list=$SERVICES --port=$APP_PORT --env=$ENV --consumer_proxy_addr=$PROXY_ADDR --consumer_group_id=$GROUP_ID --consumer_autocommit_enable=false --topic=$TOPIC
