@@ -18,12 +18,13 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-
+	"errors"
+	"strconv"
 )
 
 func main() {
+	//TODO debug or Info?
 	log.SetLevel(log.InfoLevel)
-	log.Printf("Application started with args %s", os.Args)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 	services := app.StringOpt("services-list", "services", "writer services")
 	port := app.StringOpt("port", "8080", "Port to listen on")
@@ -31,15 +32,17 @@ func main() {
 
 	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://proxy-address", "Comma separated kafka proxy hosts for message consuming.")
 	consumerGroupID := app.StringOpt("consumer_group_id", "idiConcept", "Kafka group id used for message consuming.")
-	consumerOffset := app.StringOpt("consumer_offset", "", "Kafka read offset.")
-	consumerAutoCommitEnable := app.BoolOpt("consumer_autocommit_enable", false, "Enable autocommit for small messages.")
+	consumerQueue := app.StringOpt("consumer_queue_id", "kafka", "Sets host header")
+	consumerOffset := app.StringOpt("consumer_offset", "smallest", "Kafka read offset.")
+	consumerAutoCommitEnable := app.BoolOpt("consumer_autocommit_enable", true, "Enable autocommit for small messages.")
+	consumerStreamCount := app.IntOpt("consumer_stream_count", 10, "Number of consumer streams")
 
 	topic := app.StringOpt("topic", "Concept", "Kafka topic subscribed to")
 
 	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string {
 		"organisationIngestion":"organisations",
-		"peopleIngestion":"people",
+		"personIngestion":"people",
 		"membershipIngestion":"memberships",
 		"roleIngestion":"roles",
 		"brandIngestion":"brands",
@@ -50,22 +53,24 @@ func main() {
 		"locationIngestion":"locations",
 	}
 
-	servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *env)
-
-	// Could take the header to router
-	httpConfigurations := httpConfigurations{servicesMap}
-
 	app.Action = func() {
+		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *env)
+		httpConfigurations := httpConfigurations{baseUrlMap:servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
 		consumerConfig := queueConsumer.QueueConfig{}
 		consumerConfig.Addrs = strings.Split(*consumerAddrs, ",")
 		consumerConfig.Group = *consumerGroupID
+		consumerConfig.Queue = *consumerQueue
 		consumerConfig.Topic = *topic
 		consumerConfig.Offset = *consumerOffset
+		consumerConfig.StreamCount = *consumerStreamCount
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 
-		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, http.Client{})
+		client := http.Client{}
+
+		httpConfigurations.client = client
+		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, client)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -88,8 +93,8 @@ func main() {
 
 		log.Println("Application closing")
 	}
-
-	log.SetLevel(log.InfoLevel)
+	//TODO debug or Info?
+	log.SetLevel(log.DebugLevel)
 	log.Infof("Application started with args %s", os.Args)
 	app.Run(os.Args)
 }
@@ -97,13 +102,13 @@ func main() {
 func createServicesMap(services string, messageTypeMap map[string]string, env string) (map[string]string){
 	stringSlice := strings.Split(services, ",")
 	servicesMap := make(map[string]string)
-	tunnel := env + "-tunnel-up.ft.com"
 	for _, service := range stringSlice {
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
-				baseUrl := "https://" + tunnel + "/__" + service
-				servicesMap[messageType] = baseUrl
-				fmt.Printf("Added url %v to map:", baseUrl)
+				//TODO hardcoded url?
+				writerUrl := "http://localhost:8080/__" + service + "/" + concept
+				servicesMap[messageType] = writerUrl
+				fmt.Printf("Added url %v to map:\n", writerUrl)
 			}
 		}
 	}
@@ -127,13 +132,14 @@ func runServer(baseUrlMap map[string]string, port string, env string) {
 	http.Handle("/", r)
 
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Unable to start server: %v", err)
+		log.Fatalf("Unable to start server: %v\n", err)
 	}
 }
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
 
+	//TODO dont know how to do gtg
 	//gtgChecker := make([]gtg.StatusChecker, 0)
 
 	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks",
@@ -150,10 +156,6 @@ func router(hh httpHandlers) http.Handler {
 	//	return gtg.Status{GoodToGo: true}
 	//})
 
-	// Then API specific ones:
-	//TODO: What endpoints do we want?
-	servicesRouter.HandleFunc("/content/{uuid}/annotations", hh.methodNotAllowedHandler)
-
 	var monitoringRouter http.Handler = servicesRouter
 	monitoringRouter = httphandlers.TransactionAwareRequestLoggingHandler(log.StandardLogger(), monitoringRouter)
 	monitoringRouter = httphandlers.HTTPMetricsHandler(metrics.DefaultRegistry, monitoringRouter)
@@ -162,6 +164,7 @@ func router(hh httpHandlers) http.Handler {
 }
 type httpConfigurations struct {
 	baseUrlMap map[string]string
+	client http.Client
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
@@ -175,54 +178,32 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
  	}
-	fmt.Printf("Ingestion Type is %v", ingestionType)
-	_, err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap)
+	_, err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap, httpConf.client)
 
 	if err == nil {
-		log.Infof("Successfully written msg: %v to writer: %v", msg, writerUrl)
+		//TODO lots of logs if INFO
+		log.Debugf("Successfully written msg: %v to writer: %v\n", msg, writerUrl)
 	} else {
-		log.Errorf("Error processing msg: %s", msg)
+		log.Errorf("Error processing msg: %s\n", msg)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string) (resp *http.Response, err error, writerUrl string) {
-	for messageType, baseUrl := range urlMap {
-		if messageType == ingestionType {
-			writerUrl = resolveEndpoint(ingestionType, baseUrl)
-		}
-	}
-	fullUrl := writerUrl + "/" + uuid
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (resp *http.Response, err error, writerUrl string) {
+	writerUrl = urlMap[ingestionType]
 
-	client := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 50,},}
-	request, err := http.NewRequest("PUT", fullUrl, msgBody)
+	reqUrl := writerUrl + "/" + uuid
+
+	request, err := http.NewRequest("PUT", reqUrl, msgBody)
 	request.ContentLength = -1
 	resp, err = client.Do(request)
-	return resp, err, writerUrl
-}
 
-func resolveEndpoint(ingestionType string, baseUrl string) (writerUrl string) {
-	switch ingestionType {
-	case "peopleIngestion":
-		return baseUrl + "/people"
-	case "organisationIngestion":
-		return baseUrl + "/organisations"
-	case "membershipIngestion":
-		return baseUrl + "/memberships"
-	case "roleIngestion":
-		return baseUrl + "/roles"
-	case "brandIngestion":
-		return baseUrl + "/brands"
-	case "subjectIngestion":
-		return baseUrl + "/subjectss"
-	case "topicIngestion":
-		return baseUrl + "/topics"
-	case "sectionIngestion":
-		return baseUrl + "/sections"
-	case "genreIngestion":
-		return baseUrl + "/genres"
-	case "locationIngestion":
-		return baseUrl + "/locations"
-	default:
-		return "unknown message type"
+	//TODO cant compare ints?
+	if strings.Contains(resp.Status,"200 OK") {
+		return resp, err, writerUrl
 	}
+	//TODO Both log and error?
+	message := "Concept not written! Status code was " + strconv.Itoa(resp.StatusCode)
+	log.Error(message)
+	err = errors.New(message)
+	return resp, err, writerUrl
 }
