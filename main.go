@@ -28,7 +28,6 @@ func main() {
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 	services := app.StringOpt("services-list", "services", "writer services")
 	port := app.StringOpt("port", "8080", "Port to listen on")
-	env := app.StringOpt("env", "local", "environment this app is running in")
 
 	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://proxy-address", "Comma separated kafka proxy hosts for message consuming.")
 	consumerGroupID := app.StringOpt("consumer_group_id", "idiConcept", "Kafka group id used for message consuming.")
@@ -54,7 +53,7 @@ func main() {
 	}
 
 	app.Action = func() {
-		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *env)
+		servicesMap := createServicesMap(*services, messageTypeEndpointsMap)
 		httpConfigurations := httpConfigurations{baseUrlMap:servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
@@ -80,7 +79,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseUrlMap, *port, *env)
+		go runServer(httpConfigurations.baseUrlMap, *port)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -99,7 +98,7 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createServicesMap(services string, messageTypeMap map[string]string, env string) (map[string]string){
+func createServicesMap(services string, messageTypeMap map[string]string) (map[string]string){
 	stringSlice := strings.Split(services, ",")
 	servicesMap := make(map[string]string)
 	for _, service := range stringSlice {
@@ -115,7 +114,7 @@ func createServicesMap(services string, messageTypeMap map[string]string, env st
 	return servicesMap
 }
 
-func runServer(baseUrlMap map[string]string, port string, env string) {
+func runServer(baseUrlMap map[string]string, port string) {
 
 	httpHandlers := httpHandlers{baseUrlMap}
 
