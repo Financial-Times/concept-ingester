@@ -40,11 +40,11 @@ func main() {
 		Desc:	"Port to listen on",
 		EnvVar:	"PORT",
 	})
-	consumerAddrs := app.String(cli.StringOpt{
-		Name:	"consumer_proxy_addr",
-		Value:	"https://proxy-address",
-		Desc: 	"Comma separated kafka proxy hosts for message consuming.",
-		EnvVar:	"PROXY_ADDR",
+	vulcanAddr := app.String(cli.StringOpt{
+		Name:	"vulcan_addr",
+		Value:	"https://vulcan-address",
+		Desc: 	"Vulcan address for routing requests",
+		EnvVar:	"VULCAN_ADDR",
 	})
 	consumerGroupID := app.String(cli.StringOpt{
 		Name: 	"consumer_group_id",
@@ -94,18 +94,18 @@ func main() {
 	}
 
 	app.Action = func() {
-		servicesMap := createServicesMap(*services, messageTypeEndpointsMap)
-		httpConfigurations := httpConfigurations{baseUrlMap:servicesMap}
-		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
-
 		consumerConfig := queueConsumer.QueueConfig{}
-		consumerConfig.Addrs = strings.Split(*consumerAddrs, ",")
+		consumerConfig.Addrs = strings.Split(*vulcanAddr, ",")
 		consumerConfig.Group = *consumerGroupID
 		consumerConfig.Queue = *consumerQueue
 		consumerConfig.Topic = *topic
 		consumerConfig.Offset = *consumerOffset
 		consumerConfig.StreamCount = *consumerStreamCount
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
+
+		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
+		httpConfigurations := httpConfigurations{baseUrlMap:servicesMap}
+		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
 		client := http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 32}}
 
@@ -137,14 +137,14 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createServicesMap(services string, messageTypeMap map[string]string) (map[string]string){
+func createServicesMap(services string, messageTypeMap map[string]string, vulcanAddr string) (map[string]string){
 	stringSlice := strings.Split(services, ",")
 	servicesMap := make(map[string]string)
 	for _, service := range stringSlice {
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
 				//TODO hardcoded url?
-				writerUrl := "http://localhost:8080/__" + service + "/" + concept
+				writerUrl := vulcanAddr + "/__" + service + "/" + concept
 				servicesMap[messageType] = writerUrl
 				fmt.Printf("Added url %v to map:\n", writerUrl)
 			}
@@ -220,7 +220,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 
 	if err == nil {
 		//TODO lots of logs if INFO
-		log.Debugf("Successfully written msg: %v to writer: %v\n", msg, writerUrl)
+		log.Infof("Successfully written msg: %v to writer: %v\n", msg, writerUrl)
 	} else {
 		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
