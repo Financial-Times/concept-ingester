@@ -26,17 +26,57 @@ func main() {
 	//TODO debug or Info?
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
-	services := app.StringOpt("services-list", "services", "writer services")
-	port := app.StringOpt("port", "8080", "Port to listen on")
 
-	consumerAddrs := app.StringOpt("consumer_proxy_addr", "https://proxy-address", "Comma separated kafka proxy hosts for message consuming.")
-	consumerGroupID := app.StringOpt("consumer_group_id", "idiConcept", "Kafka group id used for message consuming.")
-	consumerQueue := app.StringOpt("consumer_queue_id", "kafka", "Sets host header")
-	consumerOffset := app.StringOpt("consumer_offset", "smallest", "Kafka read offset.")
-	consumerAutoCommitEnable := app.BoolOpt("consumer_autocommit_enable", true, "Enable autocommit for small messages.")
-	consumerStreamCount := app.IntOpt("consumer_stream_count", 10, "Number of consumer streams")
-
-	topic := app.StringOpt("topic", "Concept", "Kafka topic subscribed to")
+	services := app.String(cli.StringOpt{
+		Name: 	"services-list",
+		Value: 	"services",
+		Desc:  	"writer services",
+		EnvVar: "SERVICES",
+	})
+	port := app.String(cli.StringOpt{
+		Name:	"port",
+		Value:	"8080",
+		Desc:	"Port to listen on",
+		EnvVar:	"PORT",
+	})
+	consumerAddrs := app.String(cli.StringOpt{
+		Name:	"consumer_proxy_addr",
+		Value:	"https://proxy-address",
+		Desc: 	"Comma separated kafka proxy hosts for message consuming.",
+		EnvVar:	"PROXY_ADDR",
+	})
+	consumerGroupID := app.String(cli.StringOpt{
+		Name: 	"consumer_group_id",
+		Value:	"ConceptIngesterGroup",
+		Desc:	"Kafka group id used for message consuming.",
+		EnvVar:	"GROUP_ID",
+	})
+	consumerQueue := app.String(cli.StringOpt{
+		Name:	"consumer_queue_id",
+		Value:	"",
+		Desc:	"Sets host header",
+		EnvVar:	"HOST_HEADER",
+	})
+	consumerOffset := app.String(cli.StringOpt{
+		Name:	"consumer_offset",
+		Value:	"",
+		Desc: 	"Kafka read offset.",
+		EnvVar: "OFFSET"})
+	consumerAutoCommitEnable := app.Bool(cli.StringOpt{
+		Name:	"consumer_autocommit_enable",
+		Value:	true,
+		Desc:	"Enable autocommit for small messages.",
+		EnvVar:	"COMMIT_ENABLE"})
+	consumerStreamCount := app.Int(cli.StringOpt{
+		Name:	"consumer_stream_count",
+		Value:	10,
+		Desc:	"Number of consumer streams",
+		EnvVar:	"STREAM_COUNT"})
+	topic := app.String(cli.StringOpt{
+		Name:	"topic",
+		Value:	"kafka-topic",
+		Desc:	"Kafka topic subscribed to",
+		EnvVar:	"TOPIC"})
 
 	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string {
