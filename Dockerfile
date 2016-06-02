@@ -26,4 +26,4 @@ RUN apk add --update bash \
   && mv concept-ingester /app \
   && apk del go git \
   && rm -rf $GOPATH /var/cache/apk/*
-CMD exec /app --services-list=$SERVICES --port=$APP_PORT --consumer_proxy_addr=$PROXY_ADDR --consumer_group_id=$GROUP_ID --consumer_autocommit_enable=true --topic=$TOPIC --consumer_offset=$OFFSET --consumer_queue_id=$QUEUE_ID --consumer_stream_count=$STREAM_COUNT
+CMD [ "/app" ]

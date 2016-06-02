@@ -20,10 +20,11 @@ import (
 	"syscall"
 	"errors"
 	"strconv"
+	"io"
+	"io/ioutil"
 )
 
 func main() {
-	//TODO debug or Info?
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 
@@ -62,12 +63,12 @@ func main() {
 		Value:	"",
 		Desc: 	"Kafka read offset.",
 		EnvVar: "OFFSET"})
-	consumerAutoCommitEnable := app.Bool(cli.StringOpt{
+	consumerAutoCommitEnable := app.Bool(cli.BoolOpt{
 		Name:	"consumer_autocommit_enable",
 		Value:	true,
 		Desc:	"Enable autocommit for small messages.",
 		EnvVar:	"COMMIT_ENABLE"})
-	consumerStreamCount := app.Int(cli.StringOpt{
+	consumerStreamCount := app.Int(cli.IntOpt{
 		Name:	"consumer_stream_count",
 		Value:	10,
 		Desc:	"Number of consumer streams",
@@ -106,7 +107,7 @@ func main() {
 		consumerConfig.StreamCount = *consumerStreamCount
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 
-		client := http.Client{}
+		client := http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 32}}
 
 		httpConfigurations.client = client
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, client)
@@ -132,8 +133,6 @@ func main() {
 
 		log.Println("Application closing")
 	}
-	//TODO debug or Info?
-	log.SetLevel(log.DebugLevel)
 	log.Infof("Application started with args %s", os.Args)
 	app.Run(os.Args)
 }
@@ -217,32 +216,33 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
  	}
-	_, err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap, httpConf.client)
+	err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap, httpConf.client)
 
 	if err == nil {
 		//TODO lots of logs if INFO
 		log.Debugf("Successfully written msg: %v to writer: %v\n", msg, writerUrl)
 	} else {
-		log.Errorf("Error processing msg: %s\n", msg)
+		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (resp *http.Response, err error, writerUrl string) {
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (err error, writerUrl string) {
 	writerUrl = urlMap[ingestionType]
 
 	reqUrl := writerUrl + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqUrl, msgBody)
 	request.ContentLength = -1
-	resp, err = client.Do(request)
+	resp, err := client.Do(request)
 
-	//TODO cant compare ints?
-	if strings.Contains(resp.Status,"200 OK") {
-		return resp, err, writerUrl
+	defer func() {
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusOK {
+		return err, writerUrl
 	}
-	//TODO Both log and error?
-	message := "Concept not written! Status code was " + strconv.Itoa(resp.StatusCode)
-	log.Error(message)
-	err = errors.New(message)
-	return resp, err, writerUrl
+	err = errors.New("Concept not written! Status code was " + strconv.Itoa(resp.StatusCode))
+	return err, writerUrl
 }
