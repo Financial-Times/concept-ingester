@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -107,7 +108,8 @@ func main() {
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-		client := http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 32}}
+		client := http.Client{Timeout: time.Duration(5 * time.Second),
+			Transport: &http.Transport{DisableKeepAlives: false, MaxIdleConnsPerHost: 32}}
 
 		httpConfigurations.client = client
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, client)
@@ -241,8 +243,8 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 	}()
 
 	if resp.StatusCode == http.StatusOK {
-		return err, writerURL
+		return writerURL, err
 	}
 	err = errors.New("Concept not written! Status code was " + strconv.Itoa(resp.StatusCode))
-	return err, writerURL
+	return writerURL, err
 }
