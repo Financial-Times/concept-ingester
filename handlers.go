@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Financial-Times/go-fthealth/v1a"
+	"regexp"
 )
 
 type httpHandlers struct {
@@ -13,19 +14,22 @@ type httpHandlers struct {
 
 func (hh *httpHandlers) healthCheck() v1a.Check {
 	return v1a.Check{
-		BusinessImpact:   "Unable to respond to Public Annotations api requests",
-		Name:             "Check connectivity to Neo4j - neoUrl is a parameter in hieradata for this service",
-		PanicGuide:       "https://sites.google.com/a/ft.com/ft-technology-service-transition/home/run-book-library/public-annotations-api",
+		BusinessImpact:   "Unable to write concepts to one or more of the configured writers",
+		Name:             "Check connectivity to neo rw services - services is a parameter in hieradata for this service",
+		PanicGuide:       "TODO",
 		Severity:         1,
-		TechnicalSummary: `Cannot connect to Neo4j. If this check fails, check that Neo4j instance is up and running. You can find the neoUrl as a parameter in hieradata for this service.`,
+		TechnicalSummary: `Cannot connect to Neo4j rw services. If this check fails, check that cluster is up and running and configured rw's are healthy. You can find the services configured as a parameter in hieradata for this service.`,
 		Checker:          hh.checker,
 	}
 }
 
+//TODO checks availability of writers not connectivity to Kafka?
 func (hh *httpHandlers) checker() (string, error) {
 	var endpointsToCheck []string
 	for _, baseUrl := range hh.baseUrlMap {
-		endpointsToCheck = append(endpointsToCheck, baseUrl + "/__gtg")
+		reg, _ := regexp.Compile("\\w*$")
+		//g2g := reg.ReplaceAllLiteralString(baseUrl, "__gtg")
+		endpointsToCheck = append(endpointsToCheck, reg.ReplaceAllLiteralString(baseUrl, "__gtg"))
 	}
 	for _, writerG2G := range endpointsToCheck {
 		resp, err := http.Get(writerG2G)

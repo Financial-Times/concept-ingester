@@ -143,7 +143,6 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 	for _, service := range stringSlice {
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
-				//TODO hardcoded url?
 				writerUrl := vulcanAddr + "/__" + service + "/" + concept
 				servicesMap[messageType] = writerUrl
 				fmt.Printf("Added url %v to map:\n", writerUrl)
