@@ -8,6 +8,7 @@ import (
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"strings"
 
+	"errors"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -15,13 +16,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
-	"os/signal"
-	"sync"
-	"syscall"
-	"errors"
-	"strconv"
 	"io"
 	"io/ioutil"
+	"os/signal"
+	"strconv"
+	"sync"
+	"syscall"
 )
 
 func main() {
@@ -29,68 +29,68 @@ func main() {
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 
 	services := app.String(cli.StringOpt{
-		Name: 	"services-list",
-		Value: 	"services",
-		Desc:  	"writer services",
+		Name:   "services-list",
+		Value:  "services",
+		Desc:   "writer services",
 		EnvVar: "SERVICES",
 	})
 	port := app.String(cli.StringOpt{
-		Name:	"port",
-		Value:	"8080",
-		Desc:	"Port to listen on",
-		EnvVar:	"PORT",
+		Name:   "port",
+		Value:  "8080",
+		Desc:   "Port to listen on",
+		EnvVar: "PORT",
 	})
 	vulcanAddr := app.String(cli.StringOpt{
-		Name:	"vulcan_addr",
-		Value:	"https://vulcan-address",
-		Desc: 	"Vulcan address for routing requests",
-		EnvVar:	"VULCAN_ADDR",
+		Name:   "vulcan_addr",
+		Value:  "https://vulcan-address",
+		Desc:   "Vulcan address for routing requests",
+		EnvVar: "VULCAN_ADDR",
 	})
 	consumerGroupID := app.String(cli.StringOpt{
-		Name: 	"consumer_group_id",
-		Value:	"ConceptIngesterGroup",
-		Desc:	"Kafka group id used for message consuming.",
-		EnvVar:	"GROUP_ID",
+		Name:   "consumer_group_id",
+		Value:  "ConceptIngesterGroup",
+		Desc:   "Kafka group id used for message consuming.",
+		EnvVar: "GROUP_ID",
 	})
 	consumerQueue := app.String(cli.StringOpt{
-		Name:	"consumer_queue_id",
-		Value:	"",
-		Desc:	"Sets host header",
-		EnvVar:	"HOST_HEADER",
+		Name:   "consumer_queue_id",
+		Value:  "",
+		Desc:   "Sets host header",
+		EnvVar: "HOST_HEADER",
 	})
 	consumerOffset := app.String(cli.StringOpt{
-		Name:	"consumer_offset",
-		Value:	"",
-		Desc: 	"Kafka read offset.",
+		Name:   "consumer_offset",
+		Value:  "",
+		Desc:   "Kafka read offset.",
 		EnvVar: "OFFSET"})
 	consumerAutoCommitEnable := app.Bool(cli.BoolOpt{
-		Name:	"consumer_autocommit_enable",
-		Value:	true,
-		Desc:	"Enable autocommit for small messages.",
-		EnvVar:	"COMMIT_ENABLE"})
+		Name:   "consumer_autocommit_enable",
+		Value:  true,
+		Desc:   "Enable autocommit for small messages.",
+		EnvVar: "COMMIT_ENABLE"})
 	consumerStreamCount := app.Int(cli.IntOpt{
-		Name:	"consumer_stream_count",
-		Value:	10,
-		Desc:	"Number of consumer streams",
-		EnvVar:	"STREAM_COUNT"})
+		Name:   "consumer_stream_count",
+		Value:  10,
+		Desc:   "Number of consumer streams",
+		EnvVar: "STREAM_COUNT"})
 	topic := app.String(cli.StringOpt{
-		Name:	"topic",
-		Value:	"kafka-topic",
-		Desc:	"Kafka topic subscribed to",
-		EnvVar:	"TOPIC"})
+		Name:   "topic",
+		Value:  "kafka-topic",
+		Desc:   "Kafka topic subscribed to",
+		EnvVar: "TOPIC"})
 
 	//TODO can we use custom headers
-	messageTypeEndpointsMap := map[string]string {
-		"organisationIngestion":"organisations",
-		"personIngestion":"people",
-		"membershipIngestion":"memberships",
-		"roleIngestion":"roles",
-		"brandIngestion":"brands",
-		"subjectIngestion":"subjects",
-		"topicIngestion":"topics",
-		"sectionIngestion":"sections",
-		"genreIngestion":"genre",
-		"locationIngestion":"locations",
+	messageTypeEndpointsMap := map[string]string{
+		"organisationIngestion": "organisations",
+		"personIngestion":       "people",
+		"membershipIngestion":   "memberships",
+		"roleIngestion":         "roles",
+		"brandIngestion":        "brands",
+		"subjectIngestion":      "subjects",
+		"topicIngestion":        "topics",
+		"sectionIngestion":      "sections",
+		"genreIngestion":        "genre",
+		"locationIngestion":     "locations",
 	}
 
 	app.Action = func() {
@@ -104,7 +104,7 @@ func main() {
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 
 		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
-		httpConfigurations := httpConfigurations{baseUrlMap:servicesMap}
+		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
 		client := http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 32}}
@@ -120,7 +120,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseUrlMap, *port)
+		go runServer(httpConfigurations.baseURLMap, *port)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -137,24 +137,24 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createServicesMap(services string, messageTypeMap map[string]string, vulcanAddr string) (map[string]string){
+func createServicesMap(services string, messageTypeMap map[string]string, vulcanAddr string) map[string]string {
 	stringSlice := strings.Split(services, ",")
 	servicesMap := make(map[string]string)
 	for _, service := range stringSlice {
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
-				writerUrl := vulcanAddr + "/__" + service + "/" + concept
-				servicesMap[messageType] = writerUrl
-				fmt.Printf("Added url %v to map:\n", writerUrl)
+				writerURL := vulcanAddr + "/__" + service + "/" + concept
+				servicesMap[messageType] = writerURL
+				fmt.Printf("Added url %v to map:\n", writerURL)
 			}
 		}
 	}
 	return servicesMap
 }
 
-func runServer(baseUrlMap map[string]string, port string) {
+func runServer(baseURLMap map[string]string, port string) {
 
-	httpHandlers := httpHandlers{baseUrlMap}
+	httpHandlers := httpHandlers{baseURLMap}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -199,9 +199,10 @@ func router(hh httpHandlers) http.Handler {
 
 	return monitoringRouter
 }
+
 type httpConfigurations struct {
-	baseUrlMap map[string]string
-	client http.Client
+	baseURLMap map[string]string
+	client     http.Client
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
@@ -214,23 +215,23 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 		if k == "Message-Id" {
 			uuid = v
 		}
- 	}
-	err, writerUrl := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseUrlMap, httpConf.client)
+	}
+	writerURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
 	if err == nil {
 		//TODO lots of logs if INFO
-		log.Infof("Successfully written msg: %v to writer: %v\n", msg, writerUrl)
+		log.Infof("Successfully written msg: %v to writer: %v\n", msg, writerURL)
 	} else {
 		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (err error, writerUrl string) {
-	writerUrl = urlMap[ingestionType]
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (writerURL string, err error) {
+	writerURL = urlMap[ingestionType]
 
-	reqUrl := writerUrl + "/" + uuid
+	reqURL := writerURL + "/" + uuid
 
-	request, err := http.NewRequest("PUT", reqUrl, msgBody)
+	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
 	resp, err := client.Do(request)
 
@@ -240,8 +241,8 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 	}()
 
 	if resp.StatusCode == http.StatusOK {
-		return err, writerUrl
+		return err, writerURL
 	}
 	err = errors.New("Concept not written! Status code was " + strconv.Itoa(resp.StatusCode))
-	return err, writerUrl
+	return err, writerURL
 }

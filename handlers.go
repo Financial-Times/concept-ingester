@@ -9,7 +9,7 @@ import (
 )
 
 type httpHandlers struct {
-	baseUrlMap map[string]string
+	baseURLMap map[string]string
 }
 
 func (hh *httpHandlers) healthCheck() v1a.Check {
@@ -26,10 +26,10 @@ func (hh *httpHandlers) healthCheck() v1a.Check {
 //TODO checks availability of writers not connectivity to Kafka?
 func (hh *httpHandlers) checker() (string, error) {
 	var endpointsToCheck []string
-	for _, baseUrl := range hh.baseUrlMap {
+	for _, baseURL := range hh.baseURLMap {
 		reg, _ := regexp.Compile("\\w*$")
 		//g2g := reg.ReplaceAllLiteralString(baseUrl, "__gtg")
-		endpointsToCheck = append(endpointsToCheck, reg.ReplaceAllLiteralString(baseUrl, "__gtg"))
+		endpointsToCheck = append(endpointsToCheck, reg.ReplaceAllLiteralString(baseURL, "__gtg"))
 	}
 	for _, writerG2G := range endpointsToCheck {
 		resp, err := http.Get(writerG2G)
