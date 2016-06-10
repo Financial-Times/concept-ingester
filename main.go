@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 
-	"fmt"
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"strings"
 
@@ -147,7 +146,6 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 			if strings.Contains(service, concept) {
 				writerURL := vulcanAddr + "/__" + service + "/" + concept
 				servicesMap[messageType] = writerURL
-				fmt.Printf("Added url %v to map:\n", writerURL)
 			}
 		}
 	}
