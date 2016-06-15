@@ -40,6 +40,12 @@ func main() {
 		Desc:   "Port to listen on",
 		EnvVar: "PORT",
 	})
+	clientTimeout := app.Int(cli.IntOpt{
+		Name:   "timeout",
+		Value:  10,
+		Desc: 	"default timeout for connection to client",
+		EnvVar: "TIMEOUT",
+	})
 	vulcanAddr := app.String(cli.StringOpt{
 		Name:   "vulcan_addr",
 		Value:  "https://vulcan-address",
@@ -107,7 +113,7 @@ func main() {
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-		client := http.Client{Timeout: time.Duration(5 * time.Second),
+		client := http.Client{Timeout: time.Duration(time.Duration(*clientTimeout)clien * time.Second),
 			Transport: &http.Transport{DisableKeepAlives: false, MaxIdleConnsPerHost: 32}}
 
 		httpConfigurations.client = client
