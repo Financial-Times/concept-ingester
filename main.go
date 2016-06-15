@@ -113,7 +113,7 @@ func main() {
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-		client := http.Client{Timeout: time.Duration(time.Duration(*clientTimeout)clien * time.Second),
+		client := http.Client{Timeout: time.Duration(time.Duration(*clientTimeout) * time.Second),
 			Transport: &http.Transport{DisableKeepAlives: false, MaxIdleConnsPerHost: 32}}
 
 		httpConfigurations.client = client
