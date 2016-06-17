@@ -87,16 +87,16 @@ func main() {
 
 	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string{
-		"organisationIngestion": "organisations",
-		"personIngestion":       "people",
-		"membershipIngestion":   "memberships",
-		"roleIngestion":         "roles",
-		"brandIngestion":        "brands",
-		"subjectIngestion":      "subjects",
-		"topicIngestion":        "topics",
-		"sectionIngestion":      "sections",
-		"genreIngestion":        "genre",
-		"locationIngestion":     "locations",
+		"organisation": "organisations",
+		"person":       "people",
+		"membership":   "memberships",
+		"role":         "roles",
+		"brand":        "brands",
+		"subject":      "subjects",
+		"topic":        "topics",
+		"section":      "sections",
+		"genre":        "genre",
+		"location":     "locations",
 	}
 
 	app.Action = func() {
