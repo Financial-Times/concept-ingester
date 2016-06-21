@@ -8,12 +8,14 @@ import (
 	"strings"
 
 	"errors"
+	"fmt"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
+	"github.com/kr/pretty"
 	"github.com/rcrowley/go-metrics"
 	"io"
 	"io/ioutil"
@@ -43,7 +45,7 @@ func main() {
 	clientTimeout := app.Int(cli.IntOpt{
 		Name:   "timeout",
 		Value:  10,
-		Desc: 	"default timeout for connection to client",
+		Desc:   "default timeout for connection to client",
 		EnvVar: "TIMEOUT",
 	})
 	vulcanAddr := app.String(cli.StringOpt{
@@ -222,6 +224,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
+	//fmt.Printf("Message with body: %s, successfully read.\n", msg.Body)
 	writerURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
 	if err == nil {
@@ -235,11 +238,14 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (writerURL string, err error) {
 	writerURL = urlMap[ingestionType]
 
-	reqURL := writerURL + "/" + uuid
+	//reqURL := writerURL + "/" + uuid
+	reqURL := "http://localhost:8080/__organisations-rw-neo4j-blue/organisations/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
+	//fmt.Printf("Request is %# v \n", pretty.Formatter(request))
 	resp, err := client.Do(request)
+	//fmt.Printf("Response is %s \n", resp)
 
 	defer func() {
 		io.Copy(ioutil.Discard, resp.Body)
