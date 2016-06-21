@@ -222,7 +222,6 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	//fmt.Printf("Message with body: %s, successfully read.\n", msg.Body)
 	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
 	if err == nil {
@@ -234,15 +233,12 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 }
 
 func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (reqURL string, err error) {
-	//writerURL = urlMap[ingestionType]
-	writerURL := "http://localhost:8080/__organisations-rw-neo4j-blue/organisations"
+	writerURL := urlMap[ingestionType]
 	reqURL = writerURL + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
-	//fmt.Printf("Request is %# v \n", pretty.Formatter(request))
 	resp, err := client.Do(request)
-	//fmt.Printf("Response is %s \n", resp)
 
 	defer func() {
 		io.Copy(ioutil.Discard, resp.Body)
