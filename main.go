@@ -223,21 +223,20 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 		}
 	}
 	//fmt.Printf("Message with body: %s, successfully read.\n", msg.Body)
-	writerURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
+	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
 	if err == nil {
 		//TODO lots of logs if INFO
-		log.Infof("Successfully written msg: %v to writer: %v\n", msg, writerURL)
+		log.Infof("Successfully written msg: %v to writer: %v\n", msg, reqURL)
 	} else {
 		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (writerURL string, err error) {
-	writerURL = urlMap[ingestionType]
-
-	//reqURL := writerURL + "/" + uuid
-	reqURL := "http://localhost:8080/__organisations-rw-neo4j-blue/organisations/" + uuid
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (reqURL string, err error) {
+	//writerURL = urlMap[ingestionType]
+	writerURL := "http://localhost:8080/__organisations-rw-neo4j-blue/organisations"
+	reqURL = writerURL + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
@@ -251,8 +250,8 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 	}()
 
 	if resp.StatusCode == http.StatusOK {
-		return writerURL, err
+		return reqURL, err
 	}
-	err = errors.New("Concept not written! Status code was " + strconv.Itoa(resp.StatusCode))
-	return writerURL, err
+	err = errors.New("Concept not written to " + reqURL + "! Status code was " + strconv.Itoa(resp.StatusCode))
+	return reqURL, err
 }
