@@ -151,11 +151,7 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
 				writerURL := vulcanAddr + "/__" + service + "/" + concept
-				if servicesMap[messageType] != "" {
-					servicesMap[messageType] = writerURL
-				} else {
-					log.Errorf("Invalid message type %v", messageType)
-				}
+				servicesMap[messageType] = writerURL
 			}
 		}
 	}
