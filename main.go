@@ -212,6 +212,7 @@ type httpConfigurations struct {
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
+	log.Info("Reading new message")
 	var ingestionType string
 	var uuid string
 	for k, v := range msg.Headers {
@@ -222,6 +223,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
+	log.Info("Message read")
 	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
 	if err == nil {
@@ -238,6 +240,7 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
+	log.Infof("Sending org %v to writer %v", uuid, reqURL)
 	resp, err := client.Do(request)
 
 	defer func() {
