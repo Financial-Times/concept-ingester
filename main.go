@@ -235,6 +235,9 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 
 func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (reqURL string, err error) {
 	writerURL := urlMap[ingestionType]
+	if writerURL == "" {
+		return writerURL, errors.New("Writer url is invalid")
+	}
 	reqURL = writerURL + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
