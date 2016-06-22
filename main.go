@@ -151,7 +151,11 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 		for messageType, concept := range messageTypeMap {
 			if strings.Contains(service, concept) {
 				writerURL := vulcanAddr + "/__" + service + "/" + concept
-				servicesMap[messageType] = writerURL
+				if servicesMap[messageType] != nil {
+					servicesMap[messageType] = writerURL
+				} else {
+					log.Errorf("Invalid message type %v", messageType)
+				}
 			}
 		}
 	}
@@ -212,7 +216,6 @@ type httpConfigurations struct {
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	log.Info("Reading new message")
 	var ingestionType string
 	var uuid string
 	for k, v := range msg.Headers {
@@ -223,14 +226,10 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	log.Info("Message read")
 	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
 
-	if err == nil {
-		//TODO lots of logs if INFO
-		log.Infof("Successfully written msg: %v to writer: %v\n", msg, reqURL)
-	} else {
-		log.Errorf("Error processing msg: %v with error %v", msg, err)
+	if err != nil {
+		log.Errorf("Error processing msg: %v with error %v to %v", msg, err, reqURL)
 	}
 }
 
@@ -240,7 +239,6 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
-	log.Infof("Sending org %v to writer %v", uuid, reqURL)
 	resp, err := client.Do(request)
 
 	defer func() {
