@@ -152,6 +152,7 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 			if strings.Contains(service, concept) {
 				writerURL := vulcanAddr + "/__" + service + "/" + concept
 				servicesMap[messageType] = writerURL
+				log.Infof("Added %v to map", writerURL)
 			}
 		}
 	}
