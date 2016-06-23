@@ -4,17 +4,11 @@ import (
 	"net/http"
 	"os"
 
-	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"strings"
 
+	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
+
 	"errors"
-	"github.com/Financial-Times/go-fthealth/v1a"
-	"github.com/Financial-Times/http-handlers-go/httphandlers"
-	status "github.com/Financial-Times/service-status-go/httphandlers"
-	log "github.com/Sirupsen/logrus"
-	"github.com/gorilla/mux"
-	"github.com/jawher/mow.cli"
-	"github.com/rcrowley/go-metrics"
 	"io"
 	"io/ioutil"
 	"os/signal"
@@ -22,6 +16,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Financial-Times/go-fthealth/v1a"
+	"github.com/Financial-Times/http-handlers-go/httphandlers"
+	status "github.com/Financial-Times/service-status-go/httphandlers"
+	log "github.com/Sirupsen/logrus"
+	"github.com/gorilla/mux"
+	"github.com/jawher/mow.cli"
+	"github.com/rcrowley/go-metrics"
 )
 
 func main() {
@@ -108,13 +110,16 @@ func main() {
 		consumerConfig.Offset = *consumerOffset
 		consumerConfig.StreamCount = *consumerStreamCount
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
+		consumerConfig.ConcurrentProcessing = true
 
 		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-		client := http.Client{Timeout: time.Duration(time.Duration(*clientTimeout) * time.Second),
-			Transport: &http.Transport{DisableKeepAlives: false, MaxIdleConnsPerHost: 32}}
+		client := http.Client{
+			Timeout: time.Duration(time.Duration(*clientTimeout) * time.Second),
+			Transport: &http.Transport{ MaxIdleConnsPerHost: 100},
+		}
 
 		httpConfigurations.client = client
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, client)
