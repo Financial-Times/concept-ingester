@@ -38,8 +38,6 @@ var httpClient = http.Client{
 	},
 }
 
-var ticker = time.NewTicker(time.Second / time.Duration(100))
-
 func main() {
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
@@ -214,7 +212,6 @@ type httpConfigurations struct {
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	<-ticker.C
 	log.Infof("Tick")
 	var ingestionType string
 	var uuid string
