@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"net"
+
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -25,6 +27,18 @@ import (
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
 )
+
+var httpClient = http.Client{
+	Transport: &http.Transport{
+		MaxIdleConnsPerHost: 128,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+	},
+}
+
+var ticker = time.NewTicker(time.Second / time.Duration(100))
 
 func main() {
 	log.SetLevel(log.InfoLevel)
@@ -41,12 +55,6 @@ func main() {
 		Value:  "8080",
 		Desc:   "Port to listen on",
 		EnvVar: "PORT",
-	})
-	clientTimeout := app.Int(cli.IntOpt{
-		Name:   "timeout",
-		Value:  10,
-		Desc:   "default timeout for connection to client",
-		EnvVar: "TIMEOUT",
 	})
 	vulcanAddr := app.String(cli.StringOpt{
 		Name:   "vulcan_addr",
@@ -76,11 +84,6 @@ func main() {
 		Value:  true,
 		Desc:   "Enable autocommit for small messages.",
 		EnvVar: "COMMIT_ENABLE"})
-	consumerStreamCount := app.Int(cli.IntOpt{
-		Name:   "consumer_stream_count",
-		Value:  10,
-		Desc:   "Number of consumer streams",
-		EnvVar: "STREAM_COUNT"})
 	topic := app.String(cli.StringOpt{
 		Name:   "topic",
 		Value:  "kafka-topic",
@@ -108,7 +111,6 @@ func main() {
 		consumerConfig.Queue = *consumerQueue
 		consumerConfig.Topic = *topic
 		consumerConfig.Offset = *consumerOffset
-		consumerConfig.StreamCount = *consumerStreamCount
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 		consumerConfig.ConcurrentProcessing = true
 
@@ -116,13 +118,7 @@ func main() {
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
 		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
-		client := http.Client{
-			Timeout: time.Duration(time.Duration(*clientTimeout) * time.Second),
-			Transport: &http.Transport{ MaxIdleConnsPerHost: 100},
-		}
-
-		httpConfigurations.client = client
-		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, client)
+		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -218,6 +214,8 @@ type httpConfigurations struct {
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
+	<-ticker.C
+	log.Infof("Tick")
 	var ingestionType string
 	var uuid string
 	for k, v := range msg.Headers {
@@ -228,14 +226,14 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap, httpConf.client)
+	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap)
 
 	if err != nil {
 		log.Errorf("Error processing msg: %v with error %v to %v", msg, err, reqURL)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string, client http.Client) (reqURL string, err error) {
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string) (reqURL string, err error) {
 	writerURL := urlMap[ingestionType]
 	if writerURL == "" {
 		return writerURL, errors.New("Writer url is invalid")
@@ -244,7 +242,7 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
-	resp, err := client.Do(request)
+	resp, err := httpClient.Do(request)
 
 	defer func() {
 		io.Copy(ioutil.Discard, resp.Body)
