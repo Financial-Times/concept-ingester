@@ -37,6 +37,7 @@ var httpClient = http.Client{
 		}).Dial,
 	},
 }
+var ticker *time.Ticker
 
 func main() {
 	log.SetLevel(log.InfoLevel)
@@ -87,6 +88,11 @@ func main() {
 		Value:  "kafka-topic",
 		Desc:   "Kafka topic subscribed to",
 		EnvVar: "TOPIC"})
+	throttle := app.Int(cli.IntOpt{
+		Name:   "throttle",
+		Value:  1000,
+		Desc:   "Throttle",
+		EnvVar: "THROTTLE"})
 
 	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string{
@@ -111,6 +117,8 @@ func main() {
 		consumerConfig.Offset = *consumerOffset
 		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
 		consumerConfig.ConcurrentProcessing = true
+
+		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
 
 		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
@@ -212,7 +220,7 @@ type httpConfigurations struct {
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	log.Infof("Tick")
+	<-ticker.C
 	var ingestionType string
 	var uuid string
 	for k, v := range msg.Headers {
