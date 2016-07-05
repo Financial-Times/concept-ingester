@@ -6,7 +6,7 @@ import (
 
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"regexp"
-	"fleet/log"
+	log "github.com/Sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"encoding/json"
@@ -82,37 +82,32 @@ func (hh *httpHandlers) ping(w http.ResponseWriter, r *http.Request) {
 
 //goodToGo returns a 503 if the healthcheck fails - suitable for use from varnish to check availability of a node
 func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) {
-	if resp, err := hh.checkWriterAvalailability(); err != nil {
-		log.Info(resp)
-		writer.WriteHeader(http.StatusServiceUnavailable)
+	if err := hh.checkWriterAvailability(); err != nil {
 	}
-
 }
 
-func (hh *httpHandlers) checkWriterAvalailability() (string, error) {
+func (hh *httpHandlers) checkWriterAvailability() error {
 	var endpointsToCheck []string
 	for _, baseURL := range hh.baseURLMap {
 		reg, _ := regexp.Compile("\\w*$")
-		//g2g := reg.ReplaceAllLiteralString(baseUrl, "__gtg")
 		endpointsToCheck = append(endpointsToCheck, reg.ReplaceAllLiteralString(baseURL, "__gtg"))
 	}
-	writer, goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
+	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
 	if goodToGo == false {
-		return "Writer " + writer + " is not able to receive write requests", gtgErr
+		return gtgErr
 	}
-
-	return "All Writers are good to go", gtgErr
+	return nil
 }
 
-func checkWriterStatus(endpointsToCheck []string) (string, bool, error) {
+func checkWriterStatus(endpointsToCheck []string) (bool, error) {
 	for _, writerG2G := range endpointsToCheck {
 		fmt.Printf("Writer g2g: %v \n", writerG2G)
 		resp, err := http.Get(writerG2G)
 		if err != nil || resp.StatusCode != http.StatusOK {
-			return writerG2G, false, err
+			return false, err
 		}
 	}
-	return "", true, nil
+	return true, nil
 }
 
 // buildInfoHandler - This is a stop gap and will be added to when we can define what we should display here

@@ -122,7 +122,6 @@ func main() {
 
 		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
-		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
@@ -178,10 +177,12 @@ func runServer(baseURLMap map[string]string, port string, vulcanAddr string, top
 	http.HandleFunc(status.PingPathDW, status.PingHandler)
 	http.HandleFunc(status.BuildInfoPath, status.BuildInfoHandler)
 	http.HandleFunc(status.BuildInfoPathDW, status.BuildInfoHandler)
+	log.Infof("concept-ingester-go-app will listen on port: %s", port)
+	//http.HandleFunc("/__gtg", httpHandlers.goodToGo)
 
 	http.Handle("/", r)
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":" + port, nil); err != nil {
 		log.Fatalf("Unable to start server: %v\n", err)
 	}
 }
@@ -190,21 +191,11 @@ func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
 
 	//TODO dont know how to do gtg
-	//gtgChecker := make([]gtg.StatusChecker, 0)
 
 	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks",
 		"Checks for accessing writer", hh.healthCheck()))
 
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
-
-	//TODO check writers /__health endpoint?
-	//gtgChecker = append(gtgChecker, func() gtg.Status {
-	//	if err := hh.checkCanConnectToProxy(); err != nil {
-	//		return gtg.Status{GoodToGo: false, Message: err.Error()}
-	//	}
-	//
-	//	return gtg.Status{GoodToGo: true}
-	//})
 
 	var monitoringRouter http.Handler = servicesRouter
 	monitoringRouter = httphandlers.TransactionAwareRequestLoggingHandler(log.StandardLogger(), monitoringRouter)
@@ -247,11 +238,7 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
 
-	client1 := pester.New()
-	client1.MaxRetries = 3
-	client1.Backoff = pester.ExponentialBackoff
-
-	resp, err := client1.Do(request)
+	resp, err := pester.DefaultClient.Do(request)
 
 	defer func() {
 		io.Copy(ioutil.Discard, resp.Body)
