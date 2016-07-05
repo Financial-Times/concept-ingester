@@ -23,6 +23,7 @@ import (
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
+	"github.com/sethgrid/pester"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
@@ -94,7 +95,6 @@ func main() {
 		Desc:   "Throttle",
 		EnvVar: "THROTTLE"})
 
-	//TODO can we use custom headers
 	messageTypeEndpointsMap := map[string]string{
 		"organisation": "organisations",
 		"person":       "people",
@@ -134,7 +134,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseURLMap, *port)
+		go runServer(httpConfigurations.baseURLMap, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -166,9 +166,9 @@ func createServicesMap(services string, messageTypeMap map[string]string, vulcan
 	return servicesMap
 }
 
-func runServer(baseURLMap map[string]string, port string) {
+func runServer(baseURLMap map[string]string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMap}
+	httpHandlers := httpHandlers{baseURLMap, vulcanAddr, topic}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -178,7 +178,6 @@ func runServer(baseURLMap map[string]string, port string) {
 	http.HandleFunc(status.PingPathDW, status.PingHandler)
 	http.HandleFunc(status.BuildInfoPath, status.BuildInfoHandler)
 	http.HandleFunc(status.BuildInfoPathDW, status.BuildInfoHandler)
-	http.HandleFunc("/__gtg", httpHandlers.goodToGo)
 
 	http.Handle("/", r)
 
@@ -200,7 +199,7 @@ func router(hh httpHandlers) http.Handler {
 
 	//TODO check writers /__health endpoint?
 	//gtgChecker = append(gtgChecker, func() gtg.Status {
-	//	if err := eng.Check(); err != nil {
+	//	if err := hh.checkCanConnectToProxy(); err != nil {
 	//		return gtg.Status{GoodToGo: false, Message: err.Error()}
 	//	}
 	//
@@ -247,7 +246,12 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, ur
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
-	resp, err := httpClient.Do(request)
+
+	client1 := pester.New()
+	client1.MaxRetries = 3
+	client1.Backoff = pester.ExponentialBackoff
+
+	resp, err := client1.Do(request)
 
 	defer func() {
 		io.Copy(ioutil.Discard, resp.Body)
