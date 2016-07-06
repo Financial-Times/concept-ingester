@@ -6,9 +6,9 @@ import (
 
 	"github.com/Financial-Times/go-fthealth/v1a"
 	log "github.com/Sirupsen/logrus"
-	"io"
 	"io/ioutil"
 	"encoding/json"
+	"io"
 )
 
 type httpHandlers struct {
@@ -24,19 +24,24 @@ func (hh *httpHandlers) healthCheck() v1a.Check {
 		PanicGuide:       "TODO",
 		Severity:         1,
 		TechnicalSummary: `Cannot connect to kafka-proxy or configured topic is not present. If this check fails, check that cluster is up and running, proxy is healthy and configured topic is present on the queue.`,
-		Checker:          hh.checkCanConnectToProxy,
+		Checker:          hh.checkCanConnectToDependencies,
 	}
 }
 
-//TODO checks availability of writers not connectivity to Kafka?
-
-func (hh *httpHandlers) checkCanConnectToProxy() (string, error) {
+func (hh *httpHandlers) checkCanConnectToDependencies() (string, error) {
 	body, err := checkProxyConnection(hh.vulcanAddr)
 	if err != nil {
-		log.Errorf("Healthcheck: Error reading request body: %v", err.Error())
-		return "", err
+		return fmt.Sprintf("Healthcheck: Error reading request body: %v", err.Error()), err
 	}
-	return checkIfTopicIsPresent(body, hh.topic)
+	err = checkIfTopicIsPresent(body, hh.topic)
+	if err != nil {
+		return fmt.Sprintf("Healthcheck: Topics not present: %v", err.Error()), err
+	}
+	err = checkWriterAvailability(hh.baseURLSlice)
+	if err != nil {
+		return fmt.Sprintf("Healthcheck: Writer not available: %v", err.Error()), err
+	}
+	return "",nil
 }
 
 func checkProxyConnection(vulcanAddr string) (body []byte, err error){
@@ -51,28 +56,34 @@ func checkProxyConnection(vulcanAddr string) (body []byte, err error){
 		log.Errorf("Healthcheck: Execution of kafka-proxy GET request resulted in error: %v", err.Error())
 	}
 	defer func() {
+		if resp == nil {
+			return
+		}
 		io.Copy(ioutil.Discard, resp.Body)
 		resp.Body.Close()
 	}()
+	if resp == nil {
+		return nil, fmt.Errorf("Connecting to kafka-proxy was unsuccessful.")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Connecting to kafka-proxy was unsuccessful. Status was %v", resp.StatusCode)
 	}
 	return ioutil.ReadAll(resp.Body)
 }
 
-func checkIfTopicIsPresent(body []byte, expectedTopic string) (string, error) {
+func checkIfTopicIsPresent(body []byte, expectedTopic string) error {
 	var registeredTopics []string
 	err := json.Unmarshal(body, &registeredTopics)
 	if err != nil {
-		return "", fmt.Errorf("Connection established to kafka-proxy, but parsing response resulted in following error: ", err.Error())
+		return fmt.Errorf("Connection established to kafka-proxy, but parsing response resulted in following error: %v", err.Error())
 	}
 
 	for _, topic := range registeredTopics {
 		if topic == expectedTopic {
-			return "", nil
+			return nil
 		}
 	}
-	return "", fmt.Errorf("Connection established to kafka-proxy, but expected topic %v was not found", expectedTopic)
+	return fmt.Errorf("Connection established to kafka-proxy, but expected topic %v was not found", expectedTopic)
 }
 
 func (hh *httpHandlers) ping(w http.ResponseWriter, r *http.Request) {
@@ -81,13 +92,15 @@ func (hh *httpHandlers) ping(w http.ResponseWriter, r *http.Request) {
 
 //goodToGo returns a 503 if the healthcheck fails - suitable for use from varnish to check availability of a node
 func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) {
-	if err := hh.checkWriterAvailability(); err != nil {
+	if _, err := hh.checkCanConnectToDependencies(); err != nil {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		return
 	}
 }
 
-func (hh *httpHandlers) checkWriterAvailability() error {
+func checkWriterAvailability(baseURLSlice []string) error {
 	var endpointsToCheck []string
-	for _, baseURL := range hh.baseURLSlice {
+	for _, baseURL := range baseURLSlice {
 		endpointsToCheck = append(endpointsToCheck, baseURL + "__gtg")
 	}
 	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)

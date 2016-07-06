@@ -12,7 +12,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -23,10 +22,10 @@ import (
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
-	"github.com/sethgrid/pester"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
+	"fmt"
 )
 
 var httpClient = http.Client{
@@ -96,17 +95,17 @@ func main() {
 		EnvVar: "THROTTLE"})
 
 	app.Action = func() {
-		consumerConfig := queueConsumer.QueueConfig{}
-		consumerConfig.Addrs = strings.Split(*vulcanAddr, ",")
-		consumerConfig.Group = *consumerGroupID
-		consumerConfig.Queue = *consumerQueue
-		consumerConfig.Topic = *topic
-		consumerConfig.Offset = *consumerOffset
-		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
-		consumerConfig.ConcurrentProcessing = true
+		consumerConfig := queueConsumer.QueueConfig{
+			Addrs : strings.Split(*vulcanAddr, ","),
+			Group : *consumerGroupID,
+			Queue : *consumerQueue,
+			Topic : *topic,
+			Offset : *consumerOffset,
+			AutoCommitEnable : *consumerAutoCommitEnable,
+			ConcurrentProcessing : true,
+		}
 
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
-
 		writersSlice := createServicesSlice(*services, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
 
@@ -169,10 +168,7 @@ func runServer(baseURLSlice []string, port string, vulcanAddr string, topic stri
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks",
-		"Checks for accessing writer", hh.healthCheck()))
-
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.healthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter
@@ -206,7 +202,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, URLSlice []string) (reqURL string, err error) {
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) (reqURL string, err error) {
 	var writerURL string
 	for _, URL := range URLSlice {
 		if strings.Contains(URL, ingestionType) {
@@ -218,20 +214,26 @@ func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, UR
 	}
 	reqURL = writerURL + "/" + uuid
 
-
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
 
-	resp, err := pester.DefaultClient.Do(request)
+	attempts := 3
+	statusCode := -1
+	for attempts > 0{
+		attempts--
+		resp, err := httpClient.Do(request)
+		readBody(resp)
 
-	defer func() {
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode == http.StatusOK {
-		return reqURL, err
+		if resp.StatusCode == http.StatusOK {
+			return reqURL, err
+		}
+		statusCode = resp.StatusCode
 	}
-	err = errors.New("Concept not written to " + reqURL + "! Status code was " + strconv.Itoa(resp.StatusCode))
-	return reqURL, err
+
+	return reqURL, fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
+}
+
+func readBody(resp *http.Response){
+	io.Copy(ioutil.Discard, resp.Body)
+	resp.Body.Close()
 }
