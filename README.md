@@ -1,20 +1,14 @@
 # Concept Ingester
 
-An API for reading concepts off of the kafka queue and sending them to the appropriate writer.
+__An API for reading concepts off of the kafka queue and sending them to the appropriate writer__
 
-Installation & running locally
+## Installation & running locally
 
-Build
-go build github.com/Financial-Times/concept-ingester
+* `go get github.com/Financial-Times/concept-ingester`
+* `cd $GOPATH/src/github.com/Financial-Times/concept-ingester`
+* `go install`
+* `$GOPATH/bin/concept-ingester --services-list="people-rw-neo4j-blue,organisations-rw-neo4j-blue" --port="8081" --vulcan_addr="http://localhost:8080" --consumer_group_id="TestConcepts" --consumer_autocommit_enable=true --topic="Concept" --consumer_offset="smallest" --consumer_queue_id="kafka" --throttle=10`
 
-Run
-$GOPATH/bin/concept-ingester
-    --services-list="people-rw-neo4j-blue,organisations-rw-neo4j-blue, etc." \n
-    --port="8080" \n
-    --consumer_proxy_addr="http://localhost:8080" \n
-    --consumer_group_id="Group Id" \n
-    --consumer_autocommit_enable=true \n
-    --topic="topic" \n
-    --consumer_offset="smallest" \n
-    --consumer_queue_id="kafka" \n
-    --consumer_stream_count=10 \n
+## Healthchecks
+* Check connectivity [http://localhost:8080/__health](http://localhost:8080/__health)
+* Good to Go: [http://localhost:8080/__gtg](http://localhost:8080/__gtg)
