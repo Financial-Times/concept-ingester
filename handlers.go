@@ -17,9 +17,9 @@ type httpHandlers struct {
 	topic string
 }
 
-func (hh *httpHandlers) kakfaProxyHealthCheck() v1a.Check {
+func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
 	return v1a.Check{
-		BusinessImpact:   "Unable to connect to kakfa proxy",
+		BusinessImpact:   "Unable to connect to kafka proxy",
 		Name:             "Check connectivity to kafka-proxy and presence of configured topic which is a parameter in hieradata for this service",
 		PanicGuide:       "TODO",
 		Severity:         1,
@@ -108,6 +108,10 @@ func (hh *httpHandlers) ping(w http.ResponseWriter, r *http.Request) {
 //goodToGo returns a 503 if the healthcheck fails - suitable for use from varnish to check availability of a node
 func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) {
 	if _, err := hh.checkCanConnectToKafkaProxy(); err != nil {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := hh.checkCanConnectToWriters(); err != nil {
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
