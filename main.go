@@ -95,19 +95,6 @@ func main() {
 		Desc:   "Throttle",
 		EnvVar: "THROTTLE"})
 
-	messageTypeEndpointsMap := map[string]string{
-		"organisation": "organisations",
-		"person":       "people",
-		"membership":   "memberships",
-		"role":         "roles",
-		"brand":        "brands",
-		"subject":      "subjects",
-		"topic":        "topics",
-		"section":      "sections",
-		"genre":        "genre",
-		"location":     "locations",
-	}
-
 	app.Action = func() {
 		consumerConfig := queueConsumer.QueueConfig{}
 		consumerConfig.Addrs = strings.Split(*vulcanAddr, ",")
@@ -120,8 +107,8 @@ func main() {
 
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
 
-		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
-		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
+		writersSlice := createServicesSlice(*services, *vulcanAddr)
+		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
@@ -133,7 +120,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseURLMap, *port, *vulcanAddr, *topic)
+		go runServer(httpConfigurations.baseURLSlice, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -150,24 +137,18 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createServicesMap(services string, messageTypeMap map[string]string, vulcanAddr string) map[string]string {
+func createServicesSlice(services string, vulcanAddr string) []string {
 	stringSlice := strings.Split(services, ",")
-	servicesMap := make(map[string]string)
 	for _, service := range stringSlice {
-		for messageType, concept := range messageTypeMap {
-			if strings.Contains(service, concept) {
-				writerURL := vulcanAddr + "/__" + service + "/" + concept
-				servicesMap[messageType] = writerURL
-				log.Infof("Added %v to map", writerURL)
-			}
-		}
+		writerURL := vulcanAddr + "/__" + service + "/"
+		log.Infof("Added %v to slice", writerURL)
 	}
-	return servicesMap
+	return stringSlice
 }
 
-func runServer(baseURLMap map[string]string, port string, vulcanAddr string, topic string) {
+func runServer(baseURLSlice []string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMap, vulcanAddr, topic}
+	httpHandlers := httpHandlers{baseURLSlice, vulcanAddr, topic}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -178,7 +159,6 @@ func runServer(baseURLMap map[string]string, port string, vulcanAddr string, top
 	http.HandleFunc(status.BuildInfoPath, status.BuildInfoHandler)
 	http.HandleFunc(status.BuildInfoPathDW, status.BuildInfoHandler)
 	log.Infof("concept-ingester-go-app will listen on port: %s", port)
-	//http.HandleFunc("/__gtg", httpHandlers.goodToGo)
 
 	http.Handle("/", r)
 
@@ -189,8 +169,6 @@ func runServer(baseURLMap map[string]string, port string, vulcanAddr string, top
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-
-	//TODO dont know how to do gtg
 
 	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks",
 		"Checks for accessing writer", hh.healthCheck()))
@@ -205,7 +183,7 @@ func router(hh httpHandlers) http.Handler {
 }
 
 type httpConfigurations struct {
-	baseURLMap map[string]string
+	baseURLSlice []string
 	client     http.Client
 }
 
@@ -221,19 +199,25 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap)
+	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
 
 	if err != nil {
 		log.Errorf("Error processing msg: %v with error %v to %v", msg, err, reqURL)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string) (reqURL string, err error) {
-	writerURL := urlMap[ingestionType]
+func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, URLSlice []string) (reqURL string, err error) {
+	var writerURL string
+	for _, URL := range URLSlice {
+		if strings.Contains(URL, ingestionType) {
+			writerURL = URL
+		}
+	}
 	if writerURL == "" {
 		return writerURL, errors.New("Writer url is invalid")
 	}
 	reqURL = writerURL + "/" + uuid
+
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1

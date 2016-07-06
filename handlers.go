@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/Financial-Times/go-fthealth/v1a"
-	"regexp"
 	log "github.com/Sirupsen/logrus"
 	"io"
 	"io/ioutil"
@@ -13,7 +12,7 @@ import (
 )
 
 type httpHandlers struct {
-	baseURLMap map[string]string
+	baseURLSlice []string
 	vulcanAddr string
 	topic string
 }
@@ -88,9 +87,8 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 
 func (hh *httpHandlers) checkWriterAvailability() error {
 	var endpointsToCheck []string
-	for _, baseURL := range hh.baseURLMap {
-		reg, _ := regexp.Compile("\\w*$")
-		endpointsToCheck = append(endpointsToCheck, reg.ReplaceAllLiteralString(baseURL, "__gtg"))
+	for _, baseURL := range hh.baseURLSlice {
+		endpointsToCheck = append(endpointsToCheck, baseURL + "__gtg")
 	}
 	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
 	if goodToGo == false {
