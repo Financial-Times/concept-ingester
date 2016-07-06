@@ -106,7 +106,7 @@ func main() {
 		}
 
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
-		writersSlice := createServicesSlice(*services, *vulcanAddr)
+		writersSlice := createWritersSlice(*services, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
@@ -136,13 +136,15 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createServicesSlice(services string, vulcanAddr string) []string {
-	stringSlice := strings.Split(services, ",")
-	for _, service := range stringSlice {
+func createWritersSlice(services string, vulcanAddr string) []string {
+	var writerSlice []string
+	serviceSlice := strings.Split(services, ",")
+	for _, service := range serviceSlice {
 		writerURL := vulcanAddr + "/__" + service + "/"
-		log.Infof("Added %v to slice", writerURL)
+		writerSlice = append(writerSlice, writerURL)
+		log.Infof("Added %v to slice \n", writerURL)
 	}
-	return stringSlice
+	return writerSlice
 }
 
 func runServer(baseURLSlice []string, port string, vulcanAddr string, topic string) {

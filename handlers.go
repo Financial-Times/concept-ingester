@@ -66,6 +66,7 @@ func checkProxyConnection(vulcanAddr string) (body []byte, err error){
 		log.Errorf("Creating kafka-proxy check resulted in error: %v", err.Error())
 		return nil, err
 	}
+	req.Header.Add("Host", "kafka")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Errorf("Healthcheck: Execution of kafka-proxy GET request resulted in error: %v", err.Error())
