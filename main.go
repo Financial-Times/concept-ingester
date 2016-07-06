@@ -168,7 +168,7 @@ func runServer(baseURLSlice []string, port string, vulcanAddr string, topic stri
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.kakfaProxyHealthCheck(), hh.writerHealthCheck()))
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter
@@ -220,6 +220,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	attempts := 3
 	statusCode := -1
 	for attempts > 0{
+		log.Info("Attempts left %d",attempts)
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
