@@ -168,7 +168,7 @@ func runServer(baseURLSlice []string, port string, vulcanAddr string, topic stri
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.healthCheck()))
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.kakfaProxyHealthCheck(), hh.writerHealthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter

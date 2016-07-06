@@ -1,4 +1,4 @@
-Concept Ingester
+# Concept Ingester
 
 An API for reading concepts off of the kafka queue and sending them to the appropriate writer.
 
