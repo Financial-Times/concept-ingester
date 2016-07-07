@@ -140,7 +140,7 @@ func createWritersSlice(services string, vulcanAddr string) []string {
 	var writerSlice []string
 	serviceSlice := strings.Split(services, ",")
 	for _, service := range serviceSlice {
-		writerURL := vulcanAddr + "/__" + service + "/"
+		writerURL := vulcanAddr + "/__" + service
 		writerSlice = append(writerSlice, writerURL)
 		log.Infof("Added %v to slice \n", writerURL)
 	}
@@ -222,7 +222,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	attempts := 3
 	statusCode := -1
 	for attempts > 0{
-		log.Info("Attempts left %d",attempts)
+		log.Infof("Attempts left %d",attempts)
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
