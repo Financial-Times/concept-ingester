@@ -221,12 +221,12 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	}
 	request.ContentLength = -1
 
-	attempts := 3
+	attempts := 5
 	statusCode := -1
 	backoffPeriod :=  0
 	for attempts > 0 {
 		time.Sleep(time.Duration(backoffPeriod) * time.Second)
-		backoffPeriod++
+		backoffPeriod += 5
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
