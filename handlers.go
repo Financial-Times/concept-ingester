@@ -5,11 +5,10 @@ import (
 	"net/http"
 
 	"encoding/json"
-	"io"
-	"io/ioutil"
-
 	"github.com/Financial-Times/go-fthealth/v1a"
 	log "github.com/Sirupsen/logrus"
+	"io"
+	"io/ioutil"
 )
 
 type httpHandlers struct {

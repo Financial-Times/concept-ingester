@@ -19,6 +19,7 @@ import (
 
 	"fmt"
 
+	"errors"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -195,14 +196,14 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
+	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
 
 	if err != nil {
-		log.Errorf("Error processing msg: %v with error %v to %v", msg, err, reqURL)
+		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) (reqURL string, err error) {
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
 	var writerURL string
 	for _, URL := range URLSlice {
 		if strings.Contains(URL, ingestionType) {
@@ -210,11 +211,14 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		}
 	}
 	if writerURL == "" {
-		return writerURL, fmt.Errorf("Writer url [%s] for ingestion type [%s] is invalid", writerURL, ingestionType)
+		return errors.New("Writer url is blank")
 	}
-	reqURL = writerURL + "/" + ingestionType + "/" + uuid
+	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
+	if err != nil {
+		return fmt.Errorf("Failed to create request to %v with body %v", reqURL, msgBody)
+	}
 	request.ContentLength = -1
 
 	attempts := 3
@@ -228,12 +232,12 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		readBody(resp)
 
 		if resp.StatusCode == http.StatusOK {
-			return reqURL, err
+			return err
 		}
 		statusCode = resp.StatusCode
 	}
+	return fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
 
-	return reqURL, fmt.Errorf("Concept not written to %s! Status code %d", reqURL, statusCode)
 }
 
 func readBody(resp *http.Response) {
