@@ -132,7 +132,6 @@ func checkWriterAvailability(baseURLSlice []string) error {
 
 func checkWriterStatus(endpointsToCheck []string) (bool, error) {
 	for _, writerG2G := range endpointsToCheck {
-		fmt.Printf("Writer g2g: %v \n", writerG2G)
 		resp, err := http.Get(writerG2G)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			return false, err

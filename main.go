@@ -8,7 +8,6 @@ import (
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 
-	"errors"
 	"io"
 	"io/ioutil"
 	"os/signal"
@@ -19,6 +18,8 @@ import (
 	"net"
 
 	"fmt"
+
+	"errors"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -108,7 +109,6 @@ func main() {
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
 		writersSlice := createWritersSlice(*services, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
-
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
 		var wg sync.WaitGroup
@@ -132,7 +132,6 @@ func main() {
 
 		log.Println("Application closing")
 	}
-	log.Infof("Application started with args %s", os.Args)
 	app.Run(os.Args)
 }
 
@@ -142,7 +141,7 @@ func createWritersSlice(services string, vulcanAddr string) []string {
 	for _, service := range serviceSlice {
 		writerURL := vulcanAddr + "/__" + service
 		writerSlice = append(writerSlice, writerURL)
-		log.Infof("Added %v to slice \n", writerURL)
+		log.Infof("Using writer url: %s", writerURL)
 	}
 	return writerSlice
 }
@@ -225,7 +224,6 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	attempts := 3
 	statusCode := -1
 	for attempts > 0 {
-		log.Infof("Attempts left %d", attempts)
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
@@ -235,8 +233,8 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		}
 		statusCode = resp.StatusCode
 	}
-
 	return fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
+
 }
 
 func readBody(resp *http.Response) {
