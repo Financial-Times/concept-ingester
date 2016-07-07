@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Financial-Times/go-fthealth/v1a"
-	log "github.com/Sirupsen/logrus"
-	"io/ioutil"
 	"encoding/json"
 	"io"
+	"io/ioutil"
+
+	"github.com/Financial-Times/go-fthealth/v1a"
+	log "github.com/Sirupsen/logrus"
 )
 
 type httpHandlers struct {
 	baseURLSlice []string
-	vulcanAddr string
-	topic string
+	vulcanAddr   string
+	topic        string
 }
 
 func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
@@ -48,7 +49,7 @@ func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Topics not present: %v", err.Error()), err
 	}
-	return "",nil
+	return "", nil
 }
 
 func (hh *httpHandlers) checkCanConnectToWriters() (string, error) {
@@ -56,12 +57,12 @@ func (hh *httpHandlers) checkCanConnectToWriters() (string, error) {
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Writer not available: %v", err.Error()), err
 	}
-	return "",nil
+	return "", nil
 }
 
-func checkProxyConnection(vulcanAddr string) (body []byte, err error){
+func checkProxyConnection(vulcanAddr string) (body []byte, err error) {
 	//check if proxy is running and topic is present
-	req, err := http.NewRequest("GET", vulcanAddr + "/topics", nil)
+	req, err := http.NewRequest("GET", vulcanAddr+"/topics", nil)
 	if err != nil {
 		log.Errorf("Creating kafka-proxy check resulted in error: %v", err.Error())
 		return nil, err
@@ -121,7 +122,7 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 func checkWriterAvailability(baseURLSlice []string) error {
 	var endpointsToCheck []string
 	for _, baseURL := range baseURLSlice {
-		endpointsToCheck = append(endpointsToCheck, baseURL + "__gtg")
+		endpointsToCheck = append(endpointsToCheck, baseURL+"__gtg")
 	}
 	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
 	if goodToGo == false {
@@ -132,7 +133,6 @@ func checkWriterAvailability(baseURLSlice []string) error {
 
 func checkWriterStatus(endpointsToCheck []string) (bool, error) {
 	for _, writerG2G := range endpointsToCheck {
-		fmt.Printf("Writer g2g: %v \n", writerG2G)
 		resp, err := http.Get(writerG2G)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			return false, err

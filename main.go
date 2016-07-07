@@ -8,7 +8,6 @@ import (
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 
-	"errors"
 	"io"
 	"io/ioutil"
 	"os/signal"
@@ -18,6 +17,8 @@ import (
 
 	"net"
 
+	"fmt"
+
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -25,7 +26,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
-	"fmt"
 )
 
 var httpClient = http.Client{
@@ -96,19 +96,18 @@ func main() {
 
 	app.Action = func() {
 		consumerConfig := queueConsumer.QueueConfig{
-			Addrs : strings.Split(*vulcanAddr, ","),
-			Group : *consumerGroupID,
-			Queue : *consumerQueue,
-			Topic : *topic,
-			Offset : *consumerOffset,
-			AutoCommitEnable : *consumerAutoCommitEnable,
-			ConcurrentProcessing : true,
+			Addrs:                strings.Split(*vulcanAddr, ","),
+			Group:                *consumerGroupID,
+			Queue:                *consumerQueue,
+			Topic:                *topic,
+			Offset:               *consumerOffset,
+			AutoCommitEnable:     *consumerAutoCommitEnable,
+			ConcurrentProcessing: true,
 		}
 
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
 		writersSlice := createWritersSlice(*services, *vulcanAddr)
 		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
-
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
 		var wg sync.WaitGroup
@@ -132,7 +131,6 @@ func main() {
 
 		log.Println("Application closing")
 	}
-	log.Infof("Application started with args %s", os.Args)
 	app.Run(os.Args)
 }
 
@@ -142,7 +140,7 @@ func createWritersSlice(services string, vulcanAddr string) []string {
 	for _, service := range serviceSlice {
 		writerURL := vulcanAddr + "/__" + service
 		writerSlice = append(writerSlice, writerURL)
-		log.Infof("Added %v to slice \n", writerURL)
+		log.Infof("Using writer url: %s", writerURL)
 	}
 	return writerSlice
 }
@@ -163,7 +161,7 @@ func runServer(baseURLSlice []string, port string, vulcanAddr string, topic stri
 
 	http.Handle("/", r)
 
-	if err := http.ListenAndServe(":" + port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Unable to start server: %v\n", err)
 	}
 }
@@ -212,7 +210,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		}
 	}
 	if writerURL == "" {
-		return writerURL, errors.New("Writer url is invalid")
+		return writerURL, fmt.Errorf("Writer url [%s] for ingestion type [%s] is invalid", writerURL, ingestionType)
 	}
 	reqURL = writerURL + "/" + ingestionType + "/" + uuid
 
@@ -222,7 +220,6 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	attempts := 3
 	statusCode := -1
 	for attempts > 0 {
-		log.Infof("Attempts left %d", attempts)
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
@@ -233,7 +230,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		statusCode = resp.StatusCode
 	}
 
-	return reqURL, fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
+	return reqURL, fmt.Errorf("Concept not written to %s! Status code %d", reqURL, statusCode)
 }
 
 func readBody(resp *http.Response) {
