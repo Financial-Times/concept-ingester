@@ -170,7 +170,7 @@ func runServer(baseURLSlice []string, port string, vulcanAddr string, topic stri
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks","Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter
@@ -182,7 +182,7 @@ func router(hh httpHandlers) http.Handler {
 
 type httpConfigurations struct {
 	baseURLSlice []string
-	client     http.Client
+	client       http.Client
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
@@ -214,15 +214,15 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	if writerURL == "" {
 		return writerURL, errors.New("Writer url is invalid")
 	}
-	reqURL = writerURL + "/" + uuid
+	reqURL = writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	request.ContentLength = -1
 
 	attempts := 3
 	statusCode := -1
-	for attempts > 0{
-		log.Infof("Attempts left %d",attempts)
+	for attempts > 0 {
+		log.Infof("Attempts left %d", attempts)
 		attempts--
 		resp, err := httpClient.Do(request)
 		readBody(resp)
@@ -236,7 +236,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	return reqURL, fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
 }
 
-func readBody(resp *http.Response){
+func readBody(resp *http.Response) {
 	io.Copy(ioutil.Discard, resp.Body)
 	resp.Body.Close()
 }
