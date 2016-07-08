@@ -121,7 +121,7 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 func checkWriterAvailability(baseURLSlice []string) error {
 	var endpointsToCheck []string
 	for _, baseURL := range baseURLSlice {
-		endpointsToCheck = append(endpointsToCheck, baseURL+"__gtg")
+		endpointsToCheck = append(endpointsToCheck, baseURL+"/__gtg")
 	}
 	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
 	if goodToGo == false {
@@ -134,7 +134,7 @@ func checkWriterStatus(endpointsToCheck []string) (bool, error) {
 	for _, writerG2G := range endpointsToCheck {
 		resp, err := http.Get(writerG2G)
 		if err != nil || resp.StatusCode != http.StatusOK {
-			return false, err
+			return false, fmt.Errorf("Writer %v returned status %d", writerG2G, resp.StatusCode)
 		}
 	}
 	return true, nil
