@@ -8,17 +8,18 @@ import (
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 
-	"errors"
 	"io"
 	"io/ioutil"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
 	"net"
 
+	"fmt"
+
+	"errors"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -94,36 +95,20 @@ func main() {
 		Desc:   "Throttle",
 		EnvVar: "THROTTLE"})
 
-	//TODO can we use custom headers
-	messageTypeEndpointsMap := map[string]string{
-		"organisation": "organisations",
-		"person":       "people",
-		"membership":   "memberships",
-		"role":         "roles",
-		"brand":        "brands",
-		"subject":      "subjects",
-		"topic":        "topics",
-		"section":      "sections",
-		"genre":        "genre",
-		"location":     "locations",
-	}
-
 	app.Action = func() {
-		consumerConfig := queueConsumer.QueueConfig{}
-		consumerConfig.Addrs = strings.Split(*vulcanAddr, ",")
-		consumerConfig.Group = *consumerGroupID
-		consumerConfig.Queue = *consumerQueue
-		consumerConfig.Topic = *topic
-		consumerConfig.Offset = *consumerOffset
-		consumerConfig.AutoCommitEnable = *consumerAutoCommitEnable
-		consumerConfig.ConcurrentProcessing = true
+		consumerConfig := queueConsumer.QueueConfig{
+			Addrs:                strings.Split(*vulcanAddr, ","),
+			Group:                *consumerGroupID,
+			Queue:                *consumerQueue,
+			Topic:                *topic,
+			Offset:               *consumerOffset,
+			AutoCommitEnable:     *consumerAutoCommitEnable,
+			ConcurrentProcessing: true,
+		}
 
 		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
-
-		servicesMap := createServicesMap(*services, messageTypeEndpointsMap, *vulcanAddr)
-		httpConfigurations := httpConfigurations{baseURLMap: servicesMap}
-		log.Infof("concept-ingester-go-app will listen on port: %s", *port)
-
+		writersSlice := createWritersSlice(*services, *vulcanAddr)
+		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
 		var wg sync.WaitGroup
@@ -134,7 +119,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseURLMap, *port)
+		go runServer(httpConfigurations.baseURLSlice, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -147,28 +132,23 @@ func main() {
 
 		log.Println("Application closing")
 	}
-	log.Infof("Application started with args %s", os.Args)
 	app.Run(os.Args)
 }
 
-func createServicesMap(services string, messageTypeMap map[string]string, vulcanAddr string) map[string]string {
-	stringSlice := strings.Split(services, ",")
-	servicesMap := make(map[string]string)
-	for _, service := range stringSlice {
-		for messageType, concept := range messageTypeMap {
-			if strings.Contains(service, concept) {
-				writerURL := vulcanAddr + "/__" + service + "/" + concept
-				servicesMap[messageType] = writerURL
-				log.Infof("Added %v to map", writerURL)
-			}
-		}
+func createWritersSlice(services string, vulcanAddr string) []string {
+	var writerSlice []string
+	serviceSlice := strings.Split(services, ",")
+	for _, service := range serviceSlice {
+		writerURL := vulcanAddr + "/__" + service
+		writerSlice = append(writerSlice, writerURL)
+		log.Infof("Using writer url: %s", writerURL)
 	}
-	return servicesMap
+	return writerSlice
 }
 
-func runServer(baseURLMap map[string]string, port string) {
+func runServer(baseURLSlice []string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMap}
+	httpHandlers := httpHandlers{baseURLSlice, vulcanAddr, topic}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -178,7 +158,7 @@ func runServer(baseURLMap map[string]string, port string) {
 	http.HandleFunc(status.PingPathDW, status.PingHandler)
 	http.HandleFunc(status.BuildInfoPath, status.BuildInfoHandler)
 	http.HandleFunc(status.BuildInfoPathDW, status.BuildInfoHandler)
-	http.HandleFunc("/__gtg", httpHandlers.goodToGo)
+	log.Infof("concept-ingester-go-app will listen on port: %s", port)
 
 	http.Handle("/", r)
 
@@ -189,23 +169,8 @@ func runServer(baseURLMap map[string]string, port string) {
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-
-	//TODO dont know how to do gtg
-	//gtgChecker := make([]gtg.StatusChecker, 0)
-
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks",
-		"Checks for accessing writer", hh.healthCheck()))
-
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
-
-	//TODO check writers /__health endpoint?
-	//gtgChecker = append(gtgChecker, func() gtg.Status {
-	//	if err := eng.Check(); err != nil {
-	//		return gtg.Status{GoodToGo: false, Message: err.Error()}
-	//	}
-	//
-	//	return gtg.Status{GoodToGo: true}
-	//})
 
 	var monitoringRouter http.Handler = servicesRouter
 	monitoringRouter = httphandlers.TransactionAwareRequestLoggingHandler(log.StandardLogger(), monitoringRouter)
@@ -215,8 +180,8 @@ func router(hh httpHandlers) http.Handler {
 }
 
 type httpConfigurations struct {
-	baseURLMap map[string]string
-	client     http.Client
+	baseURLSlice []string
+	client       http.Client
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
@@ -231,32 +196,51 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 			uuid = v
 		}
 	}
-	reqURL, err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMap)
+	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
 
 	if err != nil {
-		log.Errorf("Error processing msg: %v with error %v to %v", msg, err, reqURL)
+		log.Errorf("Error processing msg: %v with error %v", msg, err)
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody *strings.Reader, uuid string, urlMap map[string]string) (reqURL string, err error) {
-	writerURL := urlMap[ingestionType]
-	if writerURL == "" {
-		return writerURL, errors.New("Writer url is invalid")
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
+	var writerURL string
+	for _, URL := range URLSlice {
+		if strings.Contains(URL, ingestionType) {
+			writerURL = URL
+		}
 	}
-	reqURL = writerURL + "/" + uuid
+	if writerURL == "" {
+		return errors.New("Writer url is blank")
+	}
+	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
-	request.ContentLength = -1
-	resp, err := httpClient.Do(request)
-
-	defer func() {
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode == http.StatusOK {
-		return reqURL, err
+	if err != nil {
+		return fmt.Errorf("Failed to create request to %v with body %v", reqURL, msgBody)
 	}
-	err = errors.New("Concept not written to " + reqURL + "! Status code was " + strconv.Itoa(resp.StatusCode))
-	return reqURL, err
+	request.ContentLength = -1
+
+	attempts := 5
+	statusCode := -1
+	backoffPeriod :=  0
+	for attempts > 0 {
+		time.Sleep(time.Duration(backoffPeriod) * time.Second)
+		backoffPeriod += 5
+		attempts--
+		resp, err := httpClient.Do(request)
+		readBody(resp)
+
+		if resp.StatusCode == http.StatusOK {
+			return err
+		}
+		statusCode = resp.StatusCode
+	}
+	return fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
+
+}
+
+func readBody(resp *http.Response) {
+	io.Copy(ioutil.Discard, resp.Body)
+	resp.Body.Close()
 }
