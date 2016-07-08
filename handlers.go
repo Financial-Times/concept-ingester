@@ -119,25 +119,13 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 }
 
 func checkWriterAvailability(baseURLSlice []string) error {
-	var endpointsToCheck []string
 	for _, baseURL := range baseURLSlice {
-		endpointsToCheck = append(endpointsToCheck, baseURL+"/__gtg")
-	}
-	goodToGo, gtgErr := checkWriterStatus(endpointsToCheck)
-	if goodToGo == false {
-		return gtgErr
-	}
-	return nil
-}
-
-func checkWriterStatus(endpointsToCheck []string) (bool, error) {
-	for _, writerG2G := range endpointsToCheck {
-		resp, err := http.Get(writerG2G)
+		resp, err := http.Get(baseURL+"/__gtg")
 		if err != nil || resp.StatusCode != http.StatusOK {
-			return false, fmt.Errorf("Writer %v returned status %d", writerG2G, resp.StatusCode)
+			return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // buildInfoHandler - This is a stop gap and will be added to when we can define what we should display here
