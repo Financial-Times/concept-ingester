@@ -19,7 +19,6 @@ import (
 
 	"fmt"
 
-	"errors"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -38,7 +37,6 @@ var httpClient = http.Client{
 		}).Dial,
 	},
 }
-var ticker *time.Ticker
 
 func main() {
 	log.SetLevel(log.InfoLevel)
@@ -106,9 +104,11 @@ func main() {
 			ConcurrentProcessing: true,
 		}
 
-		ticker = time.NewTicker(time.Second / time.Duration(*throttle))
 		writersSlice := createWritersSlice(*services, *vulcanAddr)
-		httpConfigurations := httpConfigurations{baseURLSlice: writersSlice}
+		httpConfigurations := httpConfigurations{
+			baseURLSlice: writersSlice,
+			ticker: time.NewTicker(time.Second / time.Duration(*throttle)),
+		}
 		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
 
 		var wg sync.WaitGroup
@@ -182,20 +182,12 @@ func router(hh httpHandlers) http.Handler {
 type httpConfigurations struct {
 	baseURLSlice []string
 	client       http.Client
+	ticker *time.Ticker
 }
 
 func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	<-ticker.C
-	var ingestionType string
-	var uuid string
-	for k, v := range msg.Headers {
-		if k == "Message-Type" {
-			ingestionType = v
-		}
-		if k == "Message-Id" {
-			uuid = v
-		}
-	}
+	<-httpConf.ticker.C
+	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
 	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
 
 	if err != nil {
@@ -203,27 +195,30 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 	}
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
-	var writerURL string
-	for _, URL := range URLSlice {
-		if strings.Contains(URL, ingestionType) {
-			writerURL = URL
+func extractMessageTypeAndId(headers map[string]string) (string, string) {
+	var ingestionType string
+	var uuid string
+	for k, v := range headers {
+		if k == "Message-Type" {
+			ingestionType = v
+		}
+		if k == "Message-Id" {
+			uuid = v
 		}
 	}
-	if writerURL == "" {
-		return errors.New("Writer url is blank")
-	}
-	reqURL := writerURL + "/" + ingestionType + "/" + uuid
+	return ingestionType, uuid
+}
 
-	request, err := http.NewRequest("PUT", reqURL, msgBody)
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
+	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLSlice)
 	if err != nil {
-		return fmt.Errorf("Failed to create request to %v with body %v", reqURL, msgBody)
+		return err
 	}
 	request.ContentLength = -1
 
 	attempts := 5
 	statusCode := -1
-	backoffPeriod :=  0
+	backoffPeriod := 0
 	for attempts > 0 {
 		time.Sleep(time.Duration(backoffPeriod) * time.Second)
 		backoffPeriod += 5
@@ -238,6 +233,25 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	}
 	return fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
 
+}
+
+func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) (*http.Request, string, error) {
+	var writerURL string
+	for _, URL := range URLSlice {
+		if strings.Contains(URL, ingestionType) {
+			writerURL = URL
+		}
+	}
+	if writerURL == "" {
+		return nil, "", fmt.Errorf("No configured writer for concept: %v", ingestionType)
+	}
+	reqURL := writerURL + "/" + ingestionType + "/" + uuid
+
+	request, err := http.NewRequest("PUT", reqURL, msgBody)
+	if err != nil {
+		return nil, reqURL, fmt.Errorf("Failed to create request to %v with body %v", reqURL, msgBody)
+	}
+	return request, reqURL, err
 }
 
 func readBody(resp *http.Response) {

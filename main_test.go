@@ -3,23 +3,60 @@ package main
 import (
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"testing"
-	//"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
+	"strings"
 )
 
-var writerSlice = []string{"localhost:8080/__people-rw-neo4j-blue", "localhost:8080/__organisations-rw-neo4j-blue"}
-var fullMessage = queueConsumer.Message{
-	Headers: map[string]string{
-		"Content-Type":      "application/json",
-		"Message-Id":        "5e0ad5e5-c3d4-387d-9875-ec15501808e5",
-		"Message-Timestamp": "2016-06-16T08:14:36.910Z",
-		"Message-Type":      "organisations",
-		"Origin-System-Id":  "http://cmdb.ft.com/systems/upp",
-		"X-Request-Id":      "tid_DwhdCkumqk",
-	},
-	Body: `{"uuid":"5e0ad5e5-c3d4-387d-9875-ec15501808e5","properName":"Acteon Group Ltd","type":"Organisation","identifiers":[{"authority":"http://api.ft.com/system/FT-TME","identifierValue":"N2I3NzcyNzktNWY4Yy00MGY3LThkMzgtY2M1MDM4MTExOTJh-T04="},{"authority":"http://api.ft.com/system/FT-UPP","identifierValue":"5e0ad5e5-c3d4-387d-9875-ec15501808e5"}]}`}
+var peopleService = "people-rw-neo4j-blue"
+var organisationsService = "organisations-rw-neo4j-blue"
 
-func TestBuildCorrectRequestURL(t *testing.T) {
-	httpConfigurations := httpConfigurations{baseURLSlice: writerSlice}
-	httpConfigurations.readMessage(fullMessage)
-	//assert := assert.New(t)
+var writerSlice []string
+
+var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
+var validMessageType = "organisations"
+var invalidMessageType = "animals"
+
+func TestWriterServiceSliceCreation(t *testing.T) {
+	writerSlice = createWritersSlice(peopleService + "," + organisationsService,"http://localhost:8080")
+	assert := assert.New(t)
+	assert.Contains(writerSlice, "http://localhost:8080/__people-rw-neo4j-blue")
+	assert.Contains(writerSlice, "http://localhost:8080/__organisations-rw-neo4j-blue")
+}
+
+func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
+	validMessage := createMessage(uuid, validMessageType)
+	ingestionType, uuid := extractMessageTypeAndId(validMessage.Headers)
+	assert := assert.New(t)
+	assert.Equal("organisations", ingestionType)
+	assert.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", uuid)
+}
+
+func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
+	validMessage := createMessage(uuid, validMessageType)
+	request, reqUrl, err := resolveWriterAndCreateRequest(validMessageType, strings.NewReader(validMessage.Body), uuid, writerSlice)
+	assert := assert.New(t)
+	assert.NoError(err)
+	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqUrl)
+	assert.NotNil(request, "Request is nil")
+}
+
+func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
+	validMessage := createMessage(uuid, invalidMessageType)
+	_, reqUrl, err := resolveWriterAndCreateRequest(invalidMessageType, strings.NewReader(validMessage.Body), uuid, writerSlice)
+	assert := assert.New(t)
+	assert.Equal("", reqUrl)
+	assert.Error(err, "No configured writer for concept: " + invalidMessageType)
+}
+
+func createMessage(messageId string, messageType string) queueConsumer.Message {
+	return queueConsumer.Message{
+		Headers: map[string]string{
+			"Content-Type":      "application/json",
+			"Message-Id":        messageId,
+			"Message-Timestamp": "2016-06-16T08:14:36.910Z",
+			"Message-Type":      messageType,
+			"Origin-System-Id":  "http://cmdb.ft.com/systems/upp",
+			"X-Request-Id":      "tid_newid",
+		},
+		Body: `{transformed-org-json`}
 }
