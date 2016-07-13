@@ -3,7 +3,7 @@ package main
 import (
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"testing"
-	//"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 var writerSlice = []string{"localhost:8080/__people-rw-neo4j-blue", "localhost:8080/__organisations-rw-neo4j-blue"}
@@ -23,3 +23,24 @@ func TestBuildCorrectRequestURL(t *testing.T) {
 	httpConfigurations.readMessage(fullMessage)
 	//assert := assert.New(t)
 }
+
+func TestResolveServiceAddress(t *testing.T) {
+	assert := assert.New(t)
+	vulkan := "http://localhost:8080"
+
+	tests := []struct {
+		writer string
+		expectedAddress []string
+	}{
+		{"some_writer:8088", []string {"http://localhost:8088", "some_writer"}},
+		{"some_writer", []string {vulkan, "some_writer"}},
+	}
+
+	for _, test := range tests {
+		actualWriterAddress := resolveServiceAddress(test.writer, vulkan)
+		assert.Equal(actualWriterAddress, test.expectedAddress, "writer address expected %v, but was %v ", test.expectedAddress, actualWriterAddress)
+
+	}
+}
+
+
