@@ -5,10 +5,11 @@ import (
 	"net/http"
 
 	"encoding/json"
-	"github.com/Financial-Times/go-fthealth/v1a"
-	log "github.com/Sirupsen/logrus"
 	"io"
 	"io/ioutil"
+
+	"github.com/Financial-Times/go-fthealth/v1a"
+	log "github.com/Sirupsen/logrus"
 )
 
 type httpHandlers struct {
@@ -120,8 +121,11 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 
 func checkWriterAvailability(baseURLSlice []string) error {
 	for _, baseURL := range baseURLSlice {
-		resp, err := http.Get(baseURL+"/__gtg")
-		if err != nil || resp.StatusCode != http.StatusOK {
+		resp, err := http.Get(baseURL + "/__gtg")
+		if err != nil {
+			return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)
+		}
+		if resp != nil && resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
 		}
 	}
