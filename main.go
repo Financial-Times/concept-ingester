@@ -191,7 +191,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
 
 	if err != nil {
-		log.Errorf("Error processing msg: %v with error %v", msg, err)
+		log.Errorf("%v", err)
 	}
 }
 
@@ -216,23 +216,19 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	}
 	request.ContentLength = -1
 
-	attempts := 5
-	statusCode := -1
-	backoffPeriod := 0
-	for attempts > 0 {
-		time.Sleep(time.Duration(backoffPeriod) * time.Second)
-		backoffPeriod += 5
-		attempts--
-		resp, err := httpClient.Do(request)
+	resp, reqErr := httpClient.Do(request)
+
+	if resp.StatusCode == http.StatusOK {
 		readBody(resp)
-
-		if resp.StatusCode == http.StatusOK {
-			return err
-		}
-		statusCode = resp.StatusCode
+		return nil
 	}
-	return fmt.Errorf("Concept not written to %s ! Status code was %d", reqURL, statusCode)
 
+	defer resp.Body.Close()
+	errorMessage, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Errorf("Cannot read error body: [%v]", err)
+	}
+	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
 }
 
 func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) (*http.Request, string, error) {
