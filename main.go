@@ -236,7 +236,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		log.Errorf("Cannot read error body: [%v]", err)
 	}
 
-	return fmt.Errorf("reqURL=[%s] status=[%d] error=[%v] body=[%s]", reqURL, resp.StatusCode, reqErr, string(errorMessage))
+	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
 }
 
 func readBody(resp *http.Response) {
