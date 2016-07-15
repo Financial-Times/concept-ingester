@@ -139,11 +139,19 @@ func createWritersSlice(services string, vulcanAddr string) []string {
 	var writerSlice []string
 	serviceSlice := strings.Split(services, ",")
 	for _, service := range serviceSlice {
-		writerURL := vulcanAddr + "/__" + service
+		serviceAddr := resolveServiceAddress(service, vulcanAddr)
+		writerURL := serviceAddr[0] + "/__" + serviceAddr[1]
 		writerSlice = append(writerSlice, writerURL)
 		log.Infof("Using writer url: %s", writerURL)
 	}
 	return writerSlice
+}
+func resolveServiceAddress(writer string, vulcanAddr string) []string {
+	wr := strings.Split(writer, ":")
+	if len(wr) > 1 { return []string{"http://localhost:" + wr[1], wr[0]}
+	}
+	return []string {vulcanAddr, writer}
+
 }
 
 func runServer(baseURLSlice []string, port string, vulcanAddr string, topic string) {
@@ -217,6 +225,9 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	request.ContentLength = -1
 
 	resp, reqErr := httpClient.Do(request)
+	if reqErr != nil {
+		return fmt.Errorf("reqURL=[%s] uuid=[%s] error=[%v]", reqURL, uuid, reqErr)
+	}
 
 	if resp.StatusCode == http.StatusOK {
 		readBody(resp)

@@ -4,6 +4,7 @@ import (
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	"testing"
 	"github.com/stretchr/testify/assert"
+
 	"strings"
 )
 
@@ -60,3 +61,24 @@ func createMessage(messageId string, messageType string) queueConsumer.Message {
 		},
 		Body: `{transformed-org-json`}
 }
+
+func TestResolveServiceAddress(t *testing.T) {
+	assert := assert.New(t)
+	vulcan := "http://localhost:8080"
+
+	tests := []struct {
+		writer string
+		expectedAddress []string
+	}{
+		{"some_writer:8088", []string {"http://localhost:8088", "some_writer"}},
+		{"some_writer", []string {vulcan, "some_writer"}},
+	}
+
+	for _, test := range tests {
+		actualWriterAddress := resolveServiceAddress(test.writer, vulcan)
+		assert.Equal(actualWriterAddress, test.expectedAddress, "writer address expected %v, but was %v ", test.expectedAddress, actualWriterAddress)
+
+	}
+}
+
+

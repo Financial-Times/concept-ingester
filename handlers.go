@@ -125,6 +125,7 @@ func checkWriterAvailability(baseURLSlice []string) error {
 		if err != nil {
 			return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)
 		}
+		resp.Body.Close()
 		if resp != nil && resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
 		}
