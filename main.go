@@ -204,17 +204,7 @@ func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
 }
 
 func extractMessageTypeAndId(headers map[string]string) (string, string) {
-	var ingestionType string
-	var uuid string
-	for k, v := range headers {
-		if k == "Message-Type" {
-			ingestionType = v
-		}
-		if k == "Message-Id" {
-			uuid = v
-		}
-	}
-	return ingestionType, uuid
+	return headers["Message-Type"], headers["Message-Id"]
 }
 
 func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
