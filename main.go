@@ -221,7 +221,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		}
 	}
 	if writerURL == "" {
-		return errors.New("Writer url is blank for concept=" + ingestionType + "and uuid=" + uuid)
+		return errors.New("Writer url is blank for concept=" + ingestionType + " and uuid=" + uuid)
 	}
 	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
