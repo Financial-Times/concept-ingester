@@ -221,7 +221,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		}
 	}
 	if writerURL == "" {
-		return errors.New("Writer url is blank")
+		return errors.New("Writer url is blank for concept=" + ingestionType + "and uuid=" + uuid)
 	}
 	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
@@ -247,7 +247,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 		log.Errorf("Cannot read error body: [%v]", err)
 	}
 
-	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
+	return fmt.Errorf("reqURL=[%s] status=[%d] concept=[%s] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, ingestionType, uuid, reqErr, string(errorMessage))
 }
 
 func readBody(resp *http.Response) {
