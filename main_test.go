@@ -49,19 +49,6 @@ func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
 	assert.Error(err, "No configured writer for concept: " + invalidMessageType)
 }
 
-func createMessage(messageId string, messageType string) queueConsumer.Message {
-	return queueConsumer.Message{
-		Headers: map[string]string{
-			"Content-Type":      "application/json",
-			"Message-Id":        messageId,
-			"Message-Timestamp": "2016-06-16T08:14:36.910Z",
-			"Message-Type":      messageType,
-			"Origin-System-Id":  "http://cmdb.ft.com/systems/upp",
-			"X-Request-Id":      "tid_newid",
-		},
-		Body: `{transformed-org-json`}
-}
-
 func TestResolveServiceAddress(t *testing.T) {
 	assert := assert.New(t)
 	vulcan := "http://localhost:8080"
@@ -81,4 +68,15 @@ func TestResolveServiceAddress(t *testing.T) {
 	}
 }
 
-
+func createMessage(messageId string, messageType string) queueConsumer.Message {
+	return queueConsumer.Message{
+		Headers: map[string]string{
+			"Content-Type":      "application/json",
+			"Message-Id":        messageId,
+			"Message-Timestamp": "2016-06-16T08:14:36.910Z",
+			"Message-Type":      messageType,
+			"Origin-System-Id":  "http://cmdb.ft.com/systems/upp",
+			"X-Request-Id":      "tid_newid",
+		},
+		Body: `{transformed-org-json`}
+}

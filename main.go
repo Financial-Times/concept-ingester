@@ -209,14 +209,11 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 
 func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
 	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLSlice)
-	if err != nil {
-		return err
-	}
 	request.ContentLength = -1
 
 	resp, reqErr := httpClient.Do(request)
 	if reqErr != nil {
-		return fmt.Errorf("reqURL=[%s] uuid=[%s] error=[%v]", reqURL, uuid, reqErr)
+		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, reqErr)
 	}
 
 	if resp.StatusCode == http.StatusOK {
@@ -229,6 +226,7 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	if err != nil {
 		log.Errorf("Cannot read error body: [%v]", err)
 	}
+
 	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
 }
 
