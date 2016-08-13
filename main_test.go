@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
@@ -18,10 +20,49 @@ var correctWriterMappings = map[string]string{
 }
 
 var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
-var validMessageType = "organisations"
+var validMessageTypeOrganisations = "organisations"
 var invalidMessageType = "animals"
 
-//func Test
+func TestMessageProcessingHappyPath(t *testing.T) {
+	// Test server that always responds with 200 code
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	mockedWriterMappings := map[string]string{
+		"people-rw-neo4j-blue":        "http://localhost:8080/__people-rw-neo4j-blue",
+		"organisations-rw-neo4j-blue": server.URL,
+	}
+
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+
+	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
+
+	assert := assert.New(t)
+	assert.NoError(err, "Should complete without error")
+
+}
+
+func TestMessageProcessingUnhappyPath(t *testing.T) {
+	// Test server that always responds with 500 code
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+
+	mockedWriterMappings := map[string]string{
+		"people-rw-neo4j-blue":        "http://localhost:8080/__people-rw-neo4j-blue",
+		"organisations-rw-neo4j-blue": server.URL,
+	}
+
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+
+	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
+
+	assert := assert.New(t)
+	assert.Error(err, "Should error")
+}
 
 func TestWriterServiceSliceCreationCluster(t *testing.T) {
 	writerMappings := createWriterMappings(peopleService+","+organisationsService, "http://localhost:8080")
@@ -40,7 +81,7 @@ func TestWriterServiceSliceCreationLocal(t *testing.T) {
 }
 
 func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
-	validMessage := createMessage(uuid, validMessageType)
+	validMessage := createMessage(uuid, validMessageTypeOrganisations)
 	ingestionType, uuid := extractMessageTypeAndId(validMessage.Headers)
 	assert := assert.New(t)
 	assert.Equal("organisations", ingestionType)
@@ -48,8 +89,8 @@ func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 }
 
 func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
-	validMessage := createMessage(uuid, validMessageType)
-	request, reqUrl, err := resolveWriterAndCreateRequest(validMessageType, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
+	validMessage := createMessage(uuid, validMessageTypeOrganisations)
+	request, reqUrl, err := resolveWriterAndCreateRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
 	assert := assert.New(t)
 	assert.NoError(err)
 	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqUrl)
