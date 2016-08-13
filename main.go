@@ -1,6 +1,7 @@
 package main
 
 import (
+	standardLog "log"
 	"net/http"
 	"os"
 
@@ -23,9 +24,10 @@ import (
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
+	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
-	"github.com/rcrowley/go-metrics"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 var httpClient = http.Client{
@@ -69,8 +71,26 @@ func main() {
 	consumerQueue := app.String(cli.StringOpt{
 		Name:   "consumer_queue_id",
 		Value:  "",
-		Desc:   "Sets host header",
-		EnvVar: "HOST_HEADER",
+		Desc:   "The kafka queue id",
+		EnvVar: "QUEUE_ID",
+	})
+	graphiteTCPAddress := app.String(cli.StringOpt{
+		Name:   "graphite-tcp-address",
+		Value:  "",
+		Desc:   "Graphite TCP address, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
+		EnvVar: "GRAPHITE_TCP_ADDRESS",
+	})
+	graphitePrefix := app.String(cli.StringOpt{
+		Name:   "graphite-prefix",
+		Value:  "",
+		Desc:   "Prefix to use. Should start with content, include the environment, and the host name. e.g. coco.pre-prod.special-reports-rw-neo4j.1",
+		EnvVar: "GRAPHITE_PREFIX",
+	})
+	logMetrics := app.Bool(cli.BoolOpt{
+		Name:   "log-metrics",
+		Value:  false,
+		Desc:   "Whether to log metrics. Set to true if running locally and you want metrics output",
+		EnvVar: "LOG_METRICS",
 	})
 	consumerOffset := app.String(cli.StringOpt{
 		Name:   "consumer_offset",
@@ -109,6 +129,9 @@ func main() {
 			baseURLMappings: writerMappings,
 			ticker:          time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
+
+		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
+
 		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
 
 		var wg sync.WaitGroup
@@ -202,7 +225,17 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	return sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+	if err != nil {
+		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"_FAILURE", metrics.DefaultRegistry)
+		failureMeter.Mark(1)
+		log.Infof("%s=%d", failureMeter.Count())
+		return err
+	}
+	successMeter := metrics.GetOrRegisterMeter(ingestionType+"_SUCCESS", metrics.DefaultRegistry)
+	successMeter.Mark(1)
+	log.Infof("%s=%d", successMeter.Count())
+	return nil
 
 }
 
@@ -255,4 +288,15 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 func readBody(resp *http.Response) {
 	io.Copy(ioutil.Discard, resp.Body)
 	resp.Body.Close()
+}
+
+func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) {
+	if graphiteTCPAddress != "" {
+		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAddress)
+		go graphite.Graphite(metrics.DefaultRegistry, 5*time.Second, graphitePrefix, addr)
+	}
+	if logMetrics { //useful locally
+		//messy use of the 'standard' log package here as this method takes the log struct, not an interface, so can't use logrus.Logger
+		go metrics.Log(metrics.DefaultRegistry, 60*time.Second, standardLog.New(os.Stdout, "metrics", standardLog.Lmicroseconds))
+	}
 }

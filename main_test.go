@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
+	metrics "github.com/rcrowley/go-metrics"
 	"github.com/stretchr/testify/assert"
 
 	"strings"
@@ -23,7 +24,7 @@ var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
 var validMessageTypeOrganisations = "organisations"
 var invalidMessageType = "animals"
 
-func TestMessageProcessingHappyPath(t *testing.T) {
+func TestMessageProcessingHappyPathIncrementsSuccessMeter(t *testing.T) {
 	// Test server that always responds with 200 code
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
@@ -35,6 +36,8 @@ func TestMessageProcessingHappyPath(t *testing.T) {
 		"organisations-rw-neo4j-blue": server.URL,
 	}
 
+	successMeterInitialCount, failureMeterInitialCount := getCounts()
+
 	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
@@ -42,9 +45,13 @@ func TestMessageProcessingHappyPath(t *testing.T) {
 	assert := assert.New(t)
 	assert.NoError(err, "Should complete without error")
 
+	successMeterFinalCount, failureMeterFinalCount := getCounts()
+
+	assert.True(successMeterFinalCount-successMeterInitialCount == 1, "Should have incremented SuccessCount by 1")
+	assert.True(failureMeterFinalCount-failureMeterInitialCount == 0, "Should not have incremented FailureCount")
 }
 
-func TestMessageProcessingUnhappyPath(t *testing.T) {
+func TestMessageProcessingUnhappyPathIncrementsFailureMeter(t *testing.T) {
 	// Test server that always responds with 500 code
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
@@ -56,12 +63,25 @@ func TestMessageProcessingUnhappyPath(t *testing.T) {
 		"organisations-rw-neo4j-blue": server.URL,
 	}
 
+	successMeterInitialCount, failureMeterInitialCount := getCounts()
+
 	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
 	assert := assert.New(t)
 	assert.Error(err, "Should error")
+
+	successMeterFinalCount, failureMeterFinalCount := getCounts()
+
+	assert.True(successMeterFinalCount-successMeterInitialCount == 0, "Should not have incremented SuccessCount")
+	assert.True(failureMeterFinalCount-failureMeterInitialCount == 1, "Should have incremented FailureCount by 1")
+}
+
+func getCounts() (int64, int64) {
+	successMeter := metrics.GetOrRegisterMeter("organisations_SUCCESS", metrics.DefaultRegistry)
+	failureMeter := metrics.GetOrRegisterMeter("organisations_FAILURE", metrics.DefaultRegistry)
+	return successMeter.Count(), failureMeter.Count()
 }
 
 func TestWriterServiceSliceCreationCluster(t *testing.T) {
@@ -82,34 +102,34 @@ func TestWriterServiceSliceCreationLocal(t *testing.T) {
 
 func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	ingestionType, uuid := extractMessageTypeAndId(validMessage.Headers)
+	extractedIngestionType, extractedUUID := extractMessageTypeAndId(validMessage.Headers)
 	assert := assert.New(t)
-	assert.Equal("organisations", ingestionType)
-	assert.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", uuid)
+	assert.Equal("organisations", extractedIngestionType)
+	assert.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", extractedUUID)
 }
 
 func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	request, reqUrl, err := resolveWriterAndCreateRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
+	request, reqURL, err := resolveWriterAndCreateRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
 	assert := assert.New(t)
 	assert.NoError(err)
-	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqUrl)
+	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqURL)
 	assert.NotNil(request, "Request is nil")
 }
 
 func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
 	validMessage := createMessage(uuid, invalidMessageType)
-	_, reqUrl, err := resolveWriterAndCreateRequest(invalidMessageType, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
+	_, reqURL, err := resolveWriterAndCreateRequest(invalidMessageType, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
 	assert := assert.New(t)
-	assert.Equal("", reqUrl)
+	assert.Equal("", reqURL)
 	assert.Error(err, "No configured writer for concept: "+invalidMessageType)
 }
 
-func createMessage(messageId string, messageType string) queueConsumer.Message {
+func createMessage(messageID string, messageType string) queueConsumer.Message {
 	return queueConsumer.Message{
 		Headers: map[string]string{
 			"Content-Type":      "application/json",
-			"Message-Id":        messageId,
+			"Message-Id":        messageID,
 			"Message-Timestamp": "2016-06-16T08:14:36.910Z",
 			"Message-Type":      messageType,
 			"Origin-System-Id":  "http://cmdb.ft.com/systems/upp",
