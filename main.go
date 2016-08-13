@@ -105,11 +105,11 @@ func main() {
 		}
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
-		httpConfigurations := httpConfigurations{
+		ing := ingesterService{
 			baseURLMappings: writerMappings,
 			ticker:          time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
-		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
+		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -119,7 +119,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseURLMappings, *port, *vulcanAddr, *topic)
+		go runServer(ing.baseURLMappings, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -186,20 +186,24 @@ func router(hh httpHandlers) http.Handler {
 	return monitoringRouter
 }
 
-type httpConfigurations struct {
+type ingesterService struct {
 	baseURLMappings map[string]string
 	client          http.Client
 	ticker          *time.Ticker
 }
 
-func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	<-httpConf.ticker.C
-	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLMappings)
-
+func (ing ingesterService) readMessage(msg queueConsumer.Message) {
+	<-ing.ticker.C
+	err := ing.processMessage(msg)
 	if err != nil {
 		log.Errorf("%v", err)
 	}
+}
+
+func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
+	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
+	return sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+
 }
 
 func extractMessageTypeAndId(headers map[string]string) (string, string) {

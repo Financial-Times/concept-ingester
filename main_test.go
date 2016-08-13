@@ -21,6 +21,8 @@ var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
 var validMessageType = "organisations"
 var invalidMessageType = "animals"
 
+//func Test
+
 func TestWriterServiceSliceCreationCluster(t *testing.T) {
 	writerMappings := createWriterMappings(peopleService+","+organisationsService, "http://localhost:8080")
 	assert := assert.New(t)
