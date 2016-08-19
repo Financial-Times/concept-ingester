@@ -13,9 +13,9 @@ import (
 )
 
 type httpHandlers struct {
-	baseURLSlice []string
-	vulcanAddr   string
-	topic        string
+	baseURLMappings map[string]string
+	vulcanAddr      string
+	topic           string
 }
 
 func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
@@ -53,7 +53,7 @@ func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
 }
 
 func (hh *httpHandlers) checkCanConnectToWriters() (string, error) {
-	err := checkWriterAvailability(hh.baseURLSlice)
+	err := checkWriterAvailability(hh.baseURLMappings)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Writer not available: %v", err.Error()), err
 	}
@@ -119,8 +119,8 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 	}
 }
 
-func checkWriterAvailability(baseURLSlice []string) error {
-	for _, baseURL := range baseURLSlice {
+func checkWriterAvailability(baseURLMapping map[string]string) error {
+	for _, baseURL := range baseURLMapping {
 		resp, err := http.Get(baseURL + "/__gtg")
 		if err != nil {
 			return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)

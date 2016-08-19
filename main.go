@@ -1,6 +1,7 @@
 package main
 
 import (
+	standardLog "log"
 	"net/http"
 	"os"
 
@@ -23,9 +24,10 @@ import (
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
+	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
-	"github.com/rcrowley/go-metrics"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 var httpClient = http.Client{
@@ -69,8 +71,26 @@ func main() {
 	consumerQueue := app.String(cli.StringOpt{
 		Name:   "consumer_queue_id",
 		Value:  "",
-		Desc:   "Sets host header",
-		EnvVar: "HOST_HEADER",
+		Desc:   "The kafka queue id",
+		EnvVar: "QUEUE_ID",
+	})
+	graphiteTCPAddress := app.String(cli.StringOpt{
+		Name:   "graphite-tcp-address",
+		Value:  "",
+		Desc:   "Graphite TCP address, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
+		EnvVar: "GRAPHITE_TCP_ADDRESS",
+	})
+	graphitePrefix := app.String(cli.StringOpt{
+		Name:   "graphite-prefix",
+		Value:  "",
+		Desc:   "Prefix to use. Should start with content, include the environment, and the host name. e.g. coco.pre-prod.special-reports-rw-neo4j.1",
+		EnvVar: "GRAPHITE_PREFIX",
+	})
+	logMetrics := app.Bool(cli.BoolOpt{
+		Name:   "log-metrics",
+		Value:  false,
+		Desc:   "Whether to log metrics. Set to true if running locally and you want metrics output",
+		EnvVar: "LOG_METRICS",
 	})
 	consumerOffset := app.String(cli.StringOpt{
 		Name:   "consumer_offset",
@@ -104,12 +124,15 @@ func main() {
 			ConcurrentProcessing: true,
 		}
 
-		writersSlice := createWritersSlice(*services, *vulcanAddr)
-		httpConfigurations := httpConfigurations{
-			baseURLSlice: writersSlice,
-			ticker: time.NewTicker(time.Second / time.Duration(*throttle)),
+		writerMappings := createWriterMappings(*services, *vulcanAddr)
+		ing := ingesterService{
+			baseURLMappings: writerMappings,
+			ticker:          time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
-		consumer := queueConsumer.NewConsumer(consumerConfig, httpConfigurations.readMessage, httpClient)
+
+		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
+
+		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -119,7 +142,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(httpConfigurations.baseURLSlice, *port, *vulcanAddr, *topic)
+		go runServer(ing.baseURLMappings, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -135,28 +158,27 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createWritersSlice(services string, vulcanAddr string) []string {
-	var writerSlice []string
+func createWriterMappings(services string, vulcanAddr string) map[string]string {
+	writerMappings := make(map[string]string)
 	serviceSlice := strings.Split(services, ",")
 	for _, service := range serviceSlice {
-		serviceAddr := resolveServiceAddress(service, vulcanAddr)
-		writerURL := serviceAddr[0] + "/__" + serviceAddr[1]
-		writerSlice = append(writerSlice, writerURL)
-		log.Infof("Using writer url: %s", writerURL)
+		writerURL := resolveWriterURL(service, vulcanAddr)
+		writerMappings[service] = writerURL
+		log.Infof("Using writer url: %s for service: %s", writerURL, service)
 	}
-	return writerSlice
+	return writerMappings
 }
-func resolveServiceAddress(writer string, vulcanAddr string) []string {
-	wr := strings.Split(writer, ":")
-	if len(wr) > 1 { return []string{"http://localhost:" + wr[1], wr[0]}
+func resolveWriterURL(service string, vulcanAddr string) string {
+	wr := strings.Split(service, ":")
+	if len(wr) > 1 {
+		return "http://localhost:" + wr[1]
 	}
-	return []string {vulcanAddr, writer}
-
+	return vulcanAddr + "/__" + service
 }
 
-func runServer(baseURLSlice []string, port string, vulcanAddr string, topic string) {
+func runServer(baseURLMappings map[string]string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLSlice, vulcanAddr, topic}
+	httpHandlers := httpHandlers{baseURLMappings, vulcanAddr, topic}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -187,28 +209,42 @@ func router(hh httpHandlers) http.Handler {
 	return monitoringRouter
 }
 
-type httpConfigurations struct {
-	baseURLSlice []string
-	client       http.Client
-	ticker *time.Ticker
+type ingesterService struct {
+	baseURLMappings map[string]string
+	client          http.Client
+	ticker          *time.Ticker
 }
 
-func (httpConf httpConfigurations) readMessage(msg queueConsumer.Message) {
-	<-httpConf.ticker.C
-	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, httpConf.baseURLSlice)
-
+func (ing ingesterService) readMessage(msg queueConsumer.Message) {
+	<-ing.ticker.C
+	err := ing.processMessage(msg)
 	if err != nil {
 		log.Errorf("%v", err)
 	}
+}
+
+func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
+	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
+	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+	if err != nil {
+		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"_FAILURE", metrics.DefaultRegistry)
+		failureMeter.Mark(1)
+		log.Infof("%s=%d", failureMeter.Count())
+		return err
+	}
+	successMeter := metrics.GetOrRegisterMeter(ingestionType+"_SUCCESS", metrics.DefaultRegistry)
+	successMeter.Mark(1)
+	log.Infof("%s=%d", successMeter.Count())
+	return nil
+
 }
 
 func extractMessageTypeAndId(headers map[string]string) (string, string) {
 	return headers["Message-Type"], headers["Message-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) error {
-	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLSlice)
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string) error {
+	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLMappings)
 	request.ContentLength = -1
 
 	resp, reqErr := httpClient.Do(request)
@@ -230,10 +266,10 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLSlice
 	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
 }
 
-func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid string, URLSlice []string) (*http.Request, string, error) {
+func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string) (*http.Request, string, error) {
 	var writerURL string
-	for _, URL := range URLSlice {
-		if strings.Contains(URL, ingestionType) {
+	for service, URL := range URLMappings {
+		if strings.Contains(service, ingestionType) {
 			writerURL = URL
 		}
 	}
@@ -252,4 +288,15 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 func readBody(resp *http.Response) {
 	io.Copy(ioutil.Discard, resp.Body)
 	resp.Body.Close()
+}
+
+func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) {
+	if graphiteTCPAddress != "" {
+		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAddress)
+		go graphite.Graphite(metrics.DefaultRegistry, 5*time.Second, graphitePrefix, addr)
+	}
+	if logMetrics { //useful locally
+		//messy use of the 'standard' log package here as this method takes the log struct, not an interface, so can't use logrus.Logger
+		go metrics.Log(metrics.DefaultRegistry, 60*time.Second, standardLog.New(os.Stdout, "metrics", standardLog.Lmicroseconds))
+	}
 }

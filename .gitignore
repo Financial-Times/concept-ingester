@@ -20,6 +20,8 @@ _cgo_export.*
 
 _testmain.go
 
+concept-ingester
+
 *.exe
 *.test
 *.prof
