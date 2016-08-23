@@ -27,7 +27,7 @@ import (
 	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
-	metrics "github.com/rcrowley/go-metrics"
+	"github.com/rcrowley/go-metrics"
 )
 
 var httpClient = http.Client{
@@ -227,14 +227,13 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
 	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
 	if err != nil {
-		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"_FAILURE", metrics.DefaultRegistry)
+		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
-		log.Infof("%s=%d", failureMeter.Count())
+		log.Infof("Incremented failure count, new count=%d for meter=%s", failureMeter.Count(), ingestionType+"-FAILURE")
 		return err
 	}
-	successMeter := metrics.GetOrRegisterMeter(ingestionType+"_SUCCESS", metrics.DefaultRegistry)
+	successMeter := metrics.GetOrRegisterMeter(ingestionType+"-SUCCESS", metrics.DefaultRegistry)
 	successMeter.Mark(1)
-	log.Infof("%s=%d", successMeter.Count())
 	return nil
 
 }
