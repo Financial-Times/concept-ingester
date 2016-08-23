@@ -79,8 +79,8 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeter(t *testing.T) {
 }
 
 func getCounts() (int64, int64) {
-	successMeter := metrics.GetOrRegisterMeter("organisations_SUCCESS", metrics.DefaultRegistry)
-	failureMeter := metrics.GetOrRegisterMeter("organisations_FAILURE", metrics.DefaultRegistry)
+	successMeter := metrics.GetOrRegisterMeter("organisations-SUCCESS", metrics.DefaultRegistry)
+	failureMeter := metrics.GetOrRegisterMeter("organisations-FAILURE", metrics.DefaultRegistry)
 	return successMeter.Count(), failureMeter.Count()
 }
 
