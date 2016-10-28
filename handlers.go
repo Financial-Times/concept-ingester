@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"encoding/json"
 	"io"
 	"io/ioutil"
 
@@ -22,9 +21,9 @@ func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
 	return v1a.Check{
 		BusinessImpact:   "Unable to connect to kafka proxy",
 		Name:             "Check connectivity to kafka-proxy and presence of configured topic which is a parameter in hieradata for this service",
-		PanicGuide:       "TODO",
+		PanicGuide:       "https://sites.google.com/a/ft.com/universal-publishing/ops-guides/concept-ingestion",
 		Severity:         1,
-		TechnicalSummary: `Cannot connect to kafka-proxy or configured topic is not present. If this check fails, check that cluster is up and running, proxy is healthy and configured topic is present on the queue.`,
+		TechnicalSummary: `Cannot connect to kafka-proxy. If this check fails, check that cluster is up and running, proxy is healthy and configured topic is present on the queue.`,
 		Checker:          hh.checkCanConnectToKafkaProxy,
 	}
 }
@@ -33,7 +32,7 @@ func (hh *httpHandlers) writerHealthCheck() v1a.Check {
 	return v1a.Check{
 		BusinessImpact:   "Unable to connect to one or more configured writers",
 		Name:             "Check connectivity to writers which are a parameter in hieradata for this service",
-		PanicGuide:       "TODO",
+		PanicGuide:       "https://sites.google.com/a/ft.com/universal-publishing/ops-guides/concept-ingestion",
 		Severity:         1,
 		TechnicalSummary: `Cannot connect to one or more configured writers. If this check fails, check that cluster is up and running and each configured writer returns a healthy gtg`,
 		Checker:          hh.checkCanConnectToWriters,
@@ -41,13 +40,9 @@ func (hh *httpHandlers) writerHealthCheck() v1a.Check {
 }
 
 func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
-	body, err := checkProxyConnection(hh.vulcanAddr)
+	_, err := checkProxyConnection(hh.vulcanAddr)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Error reading request body: %v", err.Error()), err
-	}
-	err = checkIfTopicIsPresent(body, hh.topic)
-	if err != nil {
-		return fmt.Sprintf("Healthcheck: Topics not present: %v", err.Error()), err
 	}
 	return "", nil
 }
@@ -86,21 +81,6 @@ func checkProxyConnection(vulcanAddr string) (body []byte, err error) {
 		return nil, fmt.Errorf("Connecting to kafka-proxy was unsuccessful. Status was %v", resp.StatusCode)
 	}
 	return ioutil.ReadAll(resp.Body)
-}
-
-func checkIfTopicIsPresent(body []byte, expectedTopic string) error {
-	var registeredTopics []string
-	err := json.Unmarshal(body, &registeredTopics)
-	if err != nil {
-		return fmt.Errorf("Connection established to kafka-proxy, but parsing response resulted in following error: %v", err.Error())
-	}
-
-	for _, topic := range registeredTopics {
-		if topic == expectedTopic {
-			return nil
-		}
-	}
-	return fmt.Errorf("Connection established to kafka-proxy, but expected topic %v was not found", expectedTopic)
 }
 
 func (hh *httpHandlers) ping(w http.ResponseWriter, r *http.Request) {
