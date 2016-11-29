@@ -132,6 +132,7 @@ func main() {
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
 		elasticsearchWriterMapping := resolveWriterURL(*elasticService, *vulcanAddr)
+		log.Infof("Using writer url: %s for service: %s", elasticsearchWriterMapping, *elasticService)
 		ing := ingesterService{
 			baseURLMappings:  writerMappings,
 			elasticWriterURL: elasticsearchWriterMapping,
@@ -234,7 +235,7 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings, ing.elasticWriterURL)
+	err := sendToWriter(ingestionType, msg.Body, uuid, ing.baseURLMappings, ing.elasticWriterURL)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -251,8 +252,9 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 	return headers["Message-Type"], headers["Message-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string, elasticWriter string) error {
-	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLMappings)
+func sendToWriter(ingestionType string, msgBody string, uuid string, URLMappings map[string]string, elasticWriter string) error {
+
+	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, strings.NewReader(msgBody), uuid, URLMappings)
 	request.ContentLength = -1
 
 	resp, reqErr := httpClient.Do(request)
@@ -263,7 +265,8 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappi
 	if resp.StatusCode == http.StatusOK {
 		readBody(resp)
 		// call the elasticsearch-concept-rw
-		elasticRequest, elasticReqURL, err := createWriteRequest(ingestionType, msgBody, uuid, elasticWriter)
+
+		elasticRequest, elasticReqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 		elasticResp, reqErr := httpClient.Do(elasticRequest)
 		if err != nil {
 			return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", elasticReqURL, ingestionType, uuid, reqErr)
@@ -297,7 +300,7 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 
 func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerURL string) (*http.Request, string, error) {
 
-	reqURL := writerURL + "/" + ingestionType + "/" + uuid
+	reqURL := writerURL + "/bulk/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	if err != nil {
