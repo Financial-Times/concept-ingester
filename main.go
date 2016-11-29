@@ -131,7 +131,7 @@ func main() {
 		}
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
-		elasticsearchWriterMapping := resolveWriterURL(*elasticService, *vulcanAddr)
+		elasticsearchWriterMapping := resolveWriterURL(*elasticService, *vulcanAddr) + "/bulk"
 		log.Infof("Using writer url: %s for service: %s", elasticsearchWriterMapping, *elasticService)
 		ing := ingesterService{
 			baseURLMappings:  writerMappings,
@@ -265,7 +265,6 @@ func sendToWriter(ingestionType string, msgBody string, uuid string, URLMappings
 	if resp.StatusCode == http.StatusOK {
 		readBody(resp)
 		// call the elasticsearch-concept-rw
-
 		elasticRequest, elasticReqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 		elasticResp, reqErr := httpClient.Do(elasticRequest)
 		if err != nil {
@@ -300,7 +299,7 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 
 func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerURL string) (*http.Request, string, error) {
 
-	reqURL := writerURL + "/bulk/" + ingestionType + "/" + uuid
+	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	if err != nil {
