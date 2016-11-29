@@ -47,8 +47,14 @@ func main() {
 	services := app.String(cli.StringOpt{
 		Name:   "services-list",
 		Value:  "services",
-		Desc:   "writer services",
+		Desc:   "neo4j writer services",
 		EnvVar: "SERVICES",
+	})
+	elasticService := app.String(cli.StringOpt{
+		Name:   "elastic-service",
+		Value:  "elastic service",
+		Desc:   "elasticsearch writer service",
+		EnvVar: "ELASTICSEARCH_WRITER",
 	})
 	port := app.String(cli.StringOpt{
 		Name:   "port",
@@ -125,9 +131,11 @@ func main() {
 		}
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
+		elasticsearchWriterMapping := resolveWriterURL(*elasticService, *vulcanAddr)
 		ing := ingesterService{
-			baseURLMappings: writerMappings,
-			ticker:          time.NewTicker(time.Second / time.Duration(*throttle)),
+			baseURLMappings:  writerMappings,
+			elasticWriterURL: elasticsearchWriterMapping,
+			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
 		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
@@ -142,7 +150,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(ing.baseURLMappings, *port, *vulcanAddr, *topic)
+		go runServer(ing.baseURLMappings, elasticsearchWriterMapping, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -176,9 +184,9 @@ func resolveWriterURL(service string, vulcanAddr string) string {
 	return vulcanAddr + "/__" + service
 }
 
-func runServer(baseURLMappings map[string]string, port string, vulcanAddr string, topic string) {
+func runServer(baseURLMappings map[string]string, elasticsearchWriter string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMappings, vulcanAddr, topic}
+	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriter, vulcanAddr, topic}
 
 	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -199,7 +207,7 @@ func runServer(baseURLMappings map[string]string, port string, vulcanAddr string
 
 func router(hh httpHandlers) http.Handler {
 	servicesRouter := mux.NewRouter()
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck(), hh.elasticHealthCheck()))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter
@@ -210,9 +218,10 @@ func router(hh httpHandlers) http.Handler {
 }
 
 type ingesterService struct {
-	baseURLMappings map[string]string
-	client          http.Client
-	ticker          *time.Ticker
+	baseURLMappings  map[string]string
+	elasticWriterURL string
+	client           http.Client
+	ticker           *time.Ticker
 }
 
 func (ing ingesterService) readMessage(msg queueConsumer.Message) {
@@ -225,7 +234,7 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings, ing.elasticWriterURL)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -242,7 +251,7 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 	return headers["Message-Type"], headers["Message-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string) error {
+func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string, elasticWriter string) error {
 	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLMappings)
 	request.ContentLength = -1
 
@@ -253,6 +262,13 @@ func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappi
 
 	if resp.StatusCode == http.StatusOK {
 		readBody(resp)
+		// call the elasticsearch-concept-rw
+		elasticRequest, elasticReqURL, err := createWriteRequest(ingestionType, msgBody, uuid, elasticWriter)
+		elasticResp, reqErr := httpClient.Do(elasticRequest)
+		if err != nil {
+			return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", elasticReqURL, ingestionType, uuid, reqErr)
+		}
+		defer elasticResp.Body.Close()
 		return nil
 	}
 
@@ -275,6 +291,12 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 	if writerURL == "" {
 		return nil, "", fmt.Errorf("No configured writer for concept: %v", ingestionType)
 	}
+
+	return createWriteRequest(ingestionType, msgBody, uuid, writerURL)
+}
+
+func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerURL string) (*http.Request, string, error) {
+
 	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
