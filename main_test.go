@@ -78,10 +78,78 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeter(t *testing.T) {
 	assert.True(failureMeterFinalCount-failureMeterInitialCount == 1, "Should have incremented FailureCount by 1")
 }
 
+func TestMessageProcessingHappyPathIncrementsSuccessMeterForElasticsearchIncluded(t *testing.T) {
+	// Test server that always responds with 200 code
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	mockedWriterMappings := map[string]string{
+		"people-rw-neo4j-blue":        "http://localhost:8080/__people-rw-neo4j-blue",
+		"organisations-rw-neo4j-blue": server.URL,
+	}
+
+	successMeterInitialCount, failureMeterInitialCount := getCounts()
+	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
+
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL, client: http.Client{}}
+
+	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
+
+	assert := assert.New(t)
+	assert.NoError(err, "Should complete without error")
+
+	successMeterFinalCount, failureMeterFinalCount := getCounts()
+	failureMeterFinalCountForElasticsearch := getElasticsearchCount()
+
+	assert.True(successMeterFinalCount-successMeterInitialCount == 1, "Should have incremented SuccessCount by 1")
+	assert.True(failureMeterFinalCount-failureMeterInitialCount == 0, "Should not have incremented FailureCount")
+	assert.True(failureMeterFinalCountForElasticsearch-failureMeterInitialCountForElasticsearch == 0, "Should not have incremented FailureCount")
+}
+
+func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *testing.T) {
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/bulk") {
+			w.WriteHeader(500)
+		} else {
+			w.WriteHeader(200)
+		}
+	}))
+	defer server.Close()
+
+	mockedWriterMappings := map[string]string{
+		"people-rw-neo4j-blue":        "http://localhost:8080/__people-rw-neo4j-blue",
+		"organisations-rw-neo4j-blue": server.URL,
+	}
+
+	successMeterInitialCount, failureMeterInitialCount := getCounts()
+	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
+
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL+"/bulk", client: http.Client{}}
+
+	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
+
+	assert := assert.New(t)
+	assert.Error(err, "Should error")
+
+	successMeterFinalCount, failureMeterFinalCount := getCounts()
+	failureMeterFinalCountForElasticsearch := getElasticsearchCount()
+
+	assert.True(successMeterFinalCount-successMeterInitialCount == 0, "Should not have incremented SuccessCount")
+	assert.True(failureMeterFinalCount-failureMeterInitialCount == 0, "Should not have incremented FailureCount")
+	assert.True(failureMeterFinalCountForElasticsearch-failureMeterInitialCountForElasticsearch == 1, "Should have incremented FailureCount by 1")
+}
+
 func getCounts() (int64, int64) {
 	successMeter := metrics.GetOrRegisterMeter("organisations-SUCCESS", metrics.DefaultRegistry)
 	failureMeter := metrics.GetOrRegisterMeter("organisations-FAILURE", metrics.DefaultRegistry)
 	return successMeter.Count(), failureMeter.Count()
+}
+
+func getElasticsearchCount() int64 {
+	return metrics.GetOrRegisterMeter("organisations-elasticsearch-FAILURE", metrics.DefaultRegistry).Count()
 }
 
 func TestWriterServiceSliceCreationCluster(t *testing.T) {
@@ -110,7 +178,8 @@ func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 
 func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	request, reqURL, err := resolveWriterAndCreateRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
+	writerUrl, err := resolveWriter(validMessageTypeOrganisations, correctWriterMappings)
+	request, reqURL, err := createWriteRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, writerUrl)
 	assert := assert.New(t)
 	assert.NoError(err)
 	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqURL)
@@ -118,10 +187,9 @@ func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
 }
 
 func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
-	validMessage := createMessage(uuid, invalidMessageType)
-	_, reqURL, err := resolveWriterAndCreateRequest(invalidMessageType, strings.NewReader(validMessage.Body), uuid, correctWriterMappings)
+	writerUrl, err := resolveWriter(invalidMessageType, correctWriterMappings)
 	assert := assert.New(t)
-	assert.Equal("", reqURL)
+	assert.Equal("", writerUrl)
 	assert.Error(err, "No configured writer for concept: "+invalidMessageType)
 }
 
