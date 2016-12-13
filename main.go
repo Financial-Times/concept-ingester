@@ -4,22 +4,16 @@ import (
 	standardLog "log"
 	"net/http"
 	"os"
-
 	"strings"
-
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
-
 	"io"
 	"io/ioutil"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
-
 	"net"
-
 	"fmt"
-
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
@@ -47,8 +41,13 @@ func main() {
 	services := app.String(cli.StringOpt{
 		Name:   "services-list",
 		Value:  "services",
-		Desc:   "writer services",
+		Desc:   "neo4j writer services",
 		EnvVar: "SERVICES",
+	})
+	elasticService := app.String(cli.StringOpt{
+		Name:   "elastic-service",
+		Desc:   "elasticsearch writer service",
+		EnvVar: "ELASTICSEARCH_WRITER",
 	})
 	port := app.String(cli.StringOpt{
 		Name:   "port",
@@ -125,9 +124,21 @@ func main() {
 		}
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
+
+		var elasticsearchWriterBasicMapping string
+		var elasticsearchWriterBulkMapping string
+		if *elasticService != "" {
+			elasticsearchWriterBasicMapping = resolveWriterURL(*elasticService, *vulcanAddr)
+			if elasticsearchWriterBasicMapping != "" {
+				elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
+			}
+			log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, *elasticService)
+		}
+
 		ing := ingesterService{
-			baseURLMappings: writerMappings,
-			ticker:          time.NewTicker(time.Second / time.Duration(*throttle)),
+			baseURLMappings:  writerMappings,
+			elasticWriterURL: elasticsearchWriterBulkMapping,
+			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
 		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
@@ -142,7 +153,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(ing.baseURLMappings, *port, *vulcanAddr, *topic)
+		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, *vulcanAddr, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -176,11 +187,16 @@ func resolveWriterURL(service string, vulcanAddr string) string {
 	return vulcanAddr + "/__" + service
 }
 
-func runServer(baseURLMappings map[string]string, port string, vulcanAddr string, topic string) {
+func runServer(baseURLMappings map[string]string, elasticsearchWriter string, port string, vulcanAddr string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMappings, vulcanAddr, topic}
+	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriter, vulcanAddr, topic}
+	var r http.Handler
+	if elasticsearchWriter != "" {
+		r = router(httpHandlers, true)
+	} else {
+		r = router(httpHandlers, false)
+	}
 
-	r := router(httpHandlers)
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
 	// The top one of these build info endpoints feels more correct, but the lower one matches what we have in Dropwizard,
 	// so it's what apps expect currently same as ping, the content of build-info needs more definition
@@ -197,9 +213,16 @@ func runServer(baseURLMappings map[string]string, port string, vulcanAddr string
 	}
 }
 
-func router(hh httpHandlers) http.Handler {
+func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
+
 	servicesRouter := mux.NewRouter()
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()))
+	var checks []v1a.Check = []v1a.Check{hh.kafkaProxyHealthCheck(), hh.kafkaProxyHealthCheck()}
+
+	if includeElasticsearchWriter {
+		checks = append(checks, hh.elasticHealthCheck())
+	}
+
+	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", checks...))
 	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
 
 	var monitoringRouter http.Handler = servicesRouter
@@ -210,9 +233,10 @@ func router(hh httpHandlers) http.Handler {
 }
 
 type ingesterService struct {
-	baseURLMappings map[string]string
-	client          http.Client
-	ticker          *time.Ticker
+	baseURLMappings  map[string]string
+	elasticWriterURL string
+	client           http.Client
+	ticker           *time.Ticker
 }
 
 func (ing ingesterService) readMessage(msg queueConsumer.Message) {
@@ -225,13 +249,33 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
-	err := sendToWriter(ingestionType, strings.NewReader(msg.Body), uuid, ing.baseURLMappings)
+
+	writerUrl, err := resolveWriter(ingestionType, ing.baseURLMappings)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
 		log.Infof("Incremented failure count, new count=%d for meter=%s", failureMeter.Count(), ingestionType+"-FAILURE")
 		return err
 	}
+
+	err = sendToWriter(ingestionType, msg.Body, uuid, writerUrl)
+	if err != nil {
+		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
+		failureMeter.Mark(1)
+		log.Infof("Incremented failure count, new count=%d for meter=%s", failureMeter.Count(), ingestionType+"-FAILURE")
+		return err
+	}
+
+	if ing.elasticWriterURL != "" {
+		err = sendToWriter(ingestionType, msg.Body, uuid, ing.elasticWriterURL)
+		if err != nil {
+			failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-elasticsearch-FAILURE", metrics.DefaultRegistry)
+			failureMeter.Mark(1)
+			log.Infof("Incremented failure count, new count=%d for meter=%s", failureMeter.Count(), ingestionType+"-elasticsearch-FAILURE")
+			return err
+		}
+	}
+
 	successMeter := metrics.GetOrRegisterMeter(ingestionType+"-SUCCESS", metrics.DefaultRegistry)
 	successMeter.Mark(1)
 	return nil
@@ -242,30 +286,30 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 	return headers["Message-Type"], headers["Message-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string) error {
-	request, reqURL, err := resolveWriterAndCreateRequest(ingestionType, msgBody, uuid, URLMappings)
-	request.ContentLength = -1
+func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWriter string) error {
 
+	request, reqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
+	if err != nil {
+		log.Errorf("Cannot create write request: [%v]", err)
+	}
+	request.ContentLength = -1
 	resp, reqErr := httpClient.Do(request)
 	if reqErr != nil {
 		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, reqErr)
 	}
-
 	if resp.StatusCode == http.StatusOK {
 		readBody(resp)
 		return nil
 	}
-
 	defer resp.Body.Close()
 	errorMessage, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.Errorf("Cannot read error body: [%v]", err)
 	}
-
 	return fmt.Errorf("reqURL=[%s] status=[%d] uuid=[%s] error=[%v] body=[%s]", reqURL, resp.StatusCode, uuid, reqErr, string(errorMessage))
 }
 
-func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid string, URLMappings map[string]string) (*http.Request, string, error) {
+func resolveWriter(ingestionType string, URLMappings map[string]string) (string, error) {
 	var writerURL string
 	for service, URL := range URLMappings {
 		if strings.Contains(service, ingestionType) {
@@ -273,8 +317,14 @@ func resolveWriterAndCreateRequest(ingestionType string, msgBody io.Reader, uuid
 		}
 	}
 	if writerURL == "" {
-		return nil, "", fmt.Errorf("No configured writer for concept: %v", ingestionType)
+		return "", fmt.Errorf("No configured writer for concept: %v", ingestionType)
 	}
+
+	return writerURL, nil
+}
+
+func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerURL string) (*http.Request, string, error) {
+
 	reqURL := writerURL + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)

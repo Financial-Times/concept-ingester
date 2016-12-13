@@ -1,6 +1,11 @@
 # Concept Ingester
 
-__An API for reading concepts off of the kafka queue and sending them to the appropriate writer__
+[![Circle CI](https://circleci.com/gh/Financial-Times/concept-ingester.svg?style=shield)](https://circleci.com/gh/Financial-Times/concept-ingester)[![Go Report Card](https://goreportcard.com/badge/github.com/Financial-Times/concept-ingester)](https://goreportcard.com/report/github.com/Financial-Times/concept-ingester) [![Coverage Status](https://coveralls.io/repos/github/Financial-Times/concept-ingester/badge.svg)](https://coveralls.io/github/Financial-Times/concept-ingester)
+
+__An API for reading concepts off of the kafka queue and sending them to the appropriate neo4j writer__
+
+An elasticsearch writer can also be configured. If so, after a successful ingestion into neo4j, the ingester will ingest the concept into elasticsearch too.
+Incremental counters both for neo and elasticsearch are configured.
 
 ## Installation
 
@@ -14,6 +19,7 @@ __An API for reading concepts off of the kafka queue and sending them to the app
 Some comments about configuration parameters:  
 * --vulcan_addr     the vulcan address, host and port
 * --services-list   comma separated list of neo4j writers - do not append a port for running in the cluster
+* --elastic-service elasticsearch writer name
 * --topic, --consumer_group_id, --consumer_autocommit_enable, --consumer_offset, --consumer_queue_id see the message-queue-gonsumer library  
 
 ## Healthchecks

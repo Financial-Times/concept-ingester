@@ -12,9 +12,10 @@ import (
 )
 
 type httpHandlers struct {
-	baseURLMappings map[string]string
-	vulcanAddr      string
-	topic           string
+	baseURLMappings        map[string]string
+	elasticsearchWriterUrl string
+	vulcanAddr             string
+	topic                  string
 }
 
 func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
@@ -39,6 +40,17 @@ func (hh *httpHandlers) writerHealthCheck() v1a.Check {
 	}
 }
 
+func (hh *httpHandlers) elasticHealthCheck() v1a.Check {
+	return v1a.Check{
+		BusinessImpact:   "Unable to connect to  elasticsearch concept writer",
+		Name:             "Check connectivity to concept-rw-elasticsearch",
+		PanicGuide:       "https://sites.google.com/a/ft.com/universal-publishing/ops-guides/concept-ingestion",
+		Severity:         1,
+		TechnicalSummary: `Cannot connect to elasticsearch concept writer. If this check fails, check that the configured writer returns a healthy gtg`,
+		Checker:          hh.checkCanConnectToElasticsearchWriter,
+	}
+}
+
 func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
 	_, err := checkProxyConnection(hh.vulcanAddr)
 	if err != nil {
@@ -48,9 +60,17 @@ func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
 }
 
 func (hh *httpHandlers) checkCanConnectToWriters() (string, error) {
-	err := checkWriterAvailability(hh.baseURLMappings)
+	err := checkWritersAvailability(hh.baseURLMappings)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Writer not available: %v", err.Error()), err
+	}
+	return "", nil
+}
+
+func (hh *httpHandlers) checkCanConnectToElasticsearchWriter() (string, error) {
+	err := checkWriterAvailability(hh.elasticsearchWriterUrl)
+	if err != nil {
+		return fmt.Sprintf("Healthcheck: Elasticsearch Concept Writer not available: %v", err.Error()), err
 	}
 	return "", nil
 }
@@ -97,18 +117,30 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
+	if _, err := hh.checkCanConnectToWriters(); err != nil {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 }
 
-func checkWriterAvailability(baseURLMapping map[string]string) error {
+func checkWritersAvailability(baseURLMapping map[string]string) error {
 	for _, baseURL := range baseURLMapping {
-		resp, err := http.Get(baseURL + "/__gtg")
+		err := checkWriterAvailability(baseURL)
 		if err != nil {
-			return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)
+			return err
 		}
-		resp.Body.Close()
-		if resp != nil && resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
-		}
+	}
+	return nil
+}
+
+func checkWriterAvailability(baseURL string) error {
+	resp, err := http.Get(baseURL + "/__gtg")
+	if err != nil {
+		return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)
+	}
+	resp.Body.Close()
+	if resp != nil && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
 	}
 	return nil
 }
