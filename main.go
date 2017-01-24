@@ -294,6 +294,7 @@ func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWrit
 	}
 	request.ContentLength = -1
 	resp, reqErr := httpClient.Do(request)
+	log.Infof("Sent concept with uuid %v to writer", uuid)
 	if reqErr != nil {
 		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, reqErr)
 	}
