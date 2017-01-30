@@ -127,7 +127,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL+"/bulk", client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL + "/bulk", client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 

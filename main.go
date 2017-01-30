@@ -1,27 +1,28 @@
 package main
 
 import (
-	standardLog "log"
-	"net/http"
-	"os"
-	"strings"
-	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
-	"io"
-	"io/ioutil"
-	"os/signal"
-	"sync"
-	"syscall"
-	"time"
-	"net"
 	"fmt"
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
+	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
+	"github.com/Shopify/sarama"
 	log "github.com/Sirupsen/logrus"
 	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
+	"io"
+	"io/ioutil"
+	standardLog "log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 var httpClient = http.Client{
@@ -111,6 +112,11 @@ func main() {
 		Value:  1000,
 		Desc:   "Throttle",
 		EnvVar: "THROTTLE"})
+	kafkaAddrs := app.String(cli.StringOpt{
+		Name:   "kafka_addrs",
+		Value:  "localhost:9092",
+		Desc:   "Kafka broker addresses",
+		EnvVar: "KAFKA_ADDRS"})
 
 	app.Action = func() {
 		consumerConfig := queueConsumer.QueueConfig{
@@ -122,6 +128,30 @@ func main() {
 			AutoCommitEnable:     *consumerAutoCommitEnable,
 			ConcurrentProcessing: true,
 		}
+
+		saramaConsumer, err := sarama.NewConsumer([]string{*kafkaAddrs}, nil)
+		if err != nil {
+			panic(err)
+		}
+		defer func() {
+			if err := saramaConsumer.Close(); err != nil {
+				log.Fatalln(err)
+			}
+		}()
+		partitionConsumer, err := saramaConsumer.ConsumePartition("TestBridge", 0, sarama.OffsetNewest)
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() {
+			if err := partitionConsumer.Close(); err != nil {
+				log.Fatalln(err)
+			}
+		}()
+
+		// Trap SIGINT to trigger a shutdown.
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, os.Interrupt)
 
 		writerMappings := createWriterMappings(*services, *vulcanAddr)
 
@@ -141,6 +171,27 @@ func main() {
 			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
+		go func() {
+			log.Infof("Starting to consume kafka=%v and topic=%v", *kafkaAddrs, "TestBridge")
+		ConsumerLoop:
+			for {
+				select {
+				case msg := <-partitionConsumer.Messages():
+					log.Info("Consumed message offset %d\n", msg.Offset)
+					ftMsg, err := parseMessage(msg.Value)
+					if err != nil {
+						log.Errorf("Error parsing message : %v", err.Error())
+					}
+					if err = ing.processMessage(ftMsg); err != nil {
+						log.Errorf("Error processing message : %v", err.Error())
+					}
+
+				case <-signals:
+					break ConsumerLoop
+				}
+			}
+			log.Infof("Stopped consuming from kafka=%v and topic=%v", *kafkaAddrs, "TestBridge")
+		}()
 		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
@@ -287,10 +338,11 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 }
 
 func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWriter string) error {
-
+	log.Infof("sendToWriter: concept=[%s] uuid=[%s]", ingestionType, uuid)
 	request, reqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 	if err != nil {
-		log.Errorf("Cannot create write request: [%v]", err)
+		log.Errorf("Cannot read error body: [%v]", err)
+		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, err)
 	}
 	request.ContentLength = -1
 	resp, reqErr := httpClient.Do(request)
