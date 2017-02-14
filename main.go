@@ -293,6 +293,9 @@ func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWrit
 		log.Errorf("Cannot create write request: [%v]", err)
 	}
 	request.ContentLength = -1
+
+	log.Infof("Sending %s with uuid: %s to %s", ingestionType, uuid, elasticWriter)
+
 	resp, reqErr := httpClient.Do(request)
 	if reqErr != nil {
 		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, reqErr)
