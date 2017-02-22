@@ -73,11 +73,11 @@ func main() {
 		Desc:   "The kafka queue id",
 		EnvVar: "QUEUE_ID",
 	})
-	graphiteTCPAddress := app.String(cli.StringOpt{
-		Name:   "graphite-tcp-address",
+	graphiteTCPAuthority := app.String(cli.StringOpt{
+		Name:   "graphite-tcp-authority",
 		Value:  "",
-		Desc:   "Graphite TCP address, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
-		EnvVar: "GRAPHITE_TCP_ADDRESS",
+		Desc:   "Graphite TCP authority, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
+		EnvVar: "GRAPHITE_TCP_AUTHORITY",
 	})
 	graphitePrefix := app.String(cli.StringOpt{
 		Name:   "graphite-prefix",
@@ -139,7 +139,7 @@ func main() {
 			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
-		outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
+		outputMetricsIfRequired(*graphiteTCPAuthority, *graphitePrefix, *logMetrics)
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
 
@@ -364,9 +364,9 @@ func readBody(resp *http.Response) {
 	resp.Body.Close()
 }
 
-func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) {
-	if graphiteTCPAddress != "" {
-		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAddress)
+func outputMetricsIfRequired(graphiteTCPAuthority string, graphitePrefix string, logMetrics bool) {
+	if graphiteTCPAuthority != "" {
+		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAuthority)
 		go graphite.Graphite(metrics.DefaultRegistry, 5*time.Second, graphitePrefix, addr)
 	}
 	if logMetrics { //useful locally
