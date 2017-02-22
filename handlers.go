@@ -133,14 +133,17 @@ func checkWritersAvailability(baseURLMapping map[string]string) error {
 }
 
 func checkWriterAvailability(baseURL string) error {
+	log.Infof("Checking gtg endpoint for writer %v", baseURL)
 	resp, err := http.Get(baseURL + "/__gtg")
 	if err != nil {
 		return fmt.Errorf("Error calling writer at %s : %v", baseURL+"/__gtg", err)
 	}
 	resp.Body.Close()
 	if resp != nil && resp.StatusCode != http.StatusOK {
+		log.Infof("Writer %v return status code: %d", baseURL, resp.StatusCode)
 		return fmt.Errorf("Writer %v returned status %d", baseURL+"/__gtg", resp.StatusCode)
 	}
+	log.Infof("Writer %v return status code: %d", baseURL, resp.StatusCode)
 	return nil
 }
 
