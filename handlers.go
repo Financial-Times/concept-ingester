@@ -116,7 +116,7 @@ func (hh *httpHandlers) goodToGo(writer http.ResponseWriter, req *http.Request) 
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := hh.checkCanConnectToWriters(); err != nil {
+	if _, err := hh.checkCanConnectToElasticsearchWriter(); err != nil {
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
