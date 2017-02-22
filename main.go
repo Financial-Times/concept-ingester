@@ -1,21 +1,22 @@
 package main
 
 import (
-	standardLog "log"
-	"net/http"
-	"os"
-	"strings"
-	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
+	"fmt"
 	"io"
 	"io/ioutil"
+	standardLog "log"
+	"net"
+	"net/http"
+	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"net"
-	"fmt"
+
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
+	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
 	graphite "github.com/cyberdelia/go-metrics-graphite"
@@ -38,16 +39,15 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 
-	services := app.String(cli.StringOpt{
-		Name:   "services-list",
-		Value:  "services",
-		Desc:   "neo4j writer services",
-		EnvVar: "SERVICES",
+	serviceAuthorities := app.String(cli.StringOpt{
+		Name:   "service-authorities",
+		Desc:   "A comma separated list of neo4j writer service authorities",
+		EnvVar: "SERVICE_AUTHORITIES",
 	})
-	elasticService := app.String(cli.StringOpt{
-		Name:   "elastic-service",
-		Desc:   "elasticsearch writer service",
-		EnvVar: "ELASTICSEARCH_WRITER",
+	elasticServiceAuthority := app.String(cli.StringOpt{
+		Name:   "elastic-service-authority",
+		Desc:   "elasticsearch writer service authority.",
+		EnvVar: "ELASTICSEARCH_WRITER_AUTHORITY",
 	})
 	port := app.String(cli.StringOpt{
 		Name:   "port",
@@ -55,20 +55,20 @@ func main() {
 		Desc:   "Port to listen on",
 		EnvVar: "PORT",
 	})
-	vulcanAddr := app.String(cli.StringOpt{
-		Name:   "vulcan_addr",
-		Value:  "https://vulcan-address",
-		Desc:   "Vulcan address for routing requests",
-		EnvVar: "VULCAN_ADDR",
+	kafkaProxyAuthority := app.String(cli.StringOpt{
+		Name:   "kafka-proxy-authority",
+		Value:  "kafka:8082",
+		Desc:   "Kafka proxy authority",
+		EnvVar: "KAFKA_PROXY_AUTHORITY",
 	})
 	consumerGroupID := app.String(cli.StringOpt{
-		Name:   "consumer_group_id",
+		Name:   "consumer-group-id",
 		Value:  "ConceptIngesterGroup",
 		Desc:   "Kafka group id used for message consuming.",
 		EnvVar: "GROUP_ID",
 	})
 	consumerQueue := app.String(cli.StringOpt{
-		Name:   "consumer_queue_id",
+		Name:   "consumer-queue-id",
 		Value:  "",
 		Desc:   "The kafka queue id",
 		EnvVar: "QUEUE_ID",
@@ -92,12 +92,12 @@ func main() {
 		EnvVar: "LOG_METRICS",
 	})
 	consumerOffset := app.String(cli.StringOpt{
-		Name:   "consumer_offset",
+		Name:   "consumer-offset",
 		Value:  "",
 		Desc:   "Kafka read offset.",
 		EnvVar: "OFFSET"})
 	consumerAutoCommitEnable := app.Bool(cli.BoolOpt{
-		Name:   "consumer_autocommit_enable",
+		Name:   "consumer-autocommit-enable",
 		Value:  true,
 		Desc:   "Enable autocommit for small messages.",
 		EnvVar: "COMMIT_ENABLE"})
@@ -113,8 +113,9 @@ func main() {
 		EnvVar: "THROTTLE"})
 
 	app.Action = func() {
+		kafkaProxyURL := resolveURL(*kafkaProxyAuthority)
 		consumerConfig := queueConsumer.QueueConfig{
-			Addrs:                strings.Split(*vulcanAddr, ","),
+			Addrs:                []string{kafkaProxyURL},
 			Group:                *consumerGroupID,
 			Queue:                *consumerQueue,
 			Topic:                *topic,
@@ -123,16 +124,13 @@ func main() {
 			ConcurrentProcessing: true,
 		}
 
-		writerMappings := createWriterMappings(*services, *vulcanAddr)
-
-		var elasticsearchWriterBasicMapping string
-		var elasticsearchWriterBulkMapping string
-		if *elasticService != "" {
-			elasticsearchWriterBasicMapping = resolveWriterURL(*elasticService, *vulcanAddr)
-			if elasticsearchWriterBasicMapping != "" {
-				elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
-			}
-			log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, *elasticService)
+		writerMappings, err := createWriterMappings(*serviceAuthorities)
+		if err != nil {
+			log.Fatal(err)
+		}
+		elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings(*elasticServiceAuthority)
+		if err != nil {
+			log.Fatal(err)
 		}
 
 		ing := ingesterService{
@@ -153,7 +151,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, *vulcanAddr, *topic)
+		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, kafkaProxyURL, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -169,27 +167,51 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createWriterMappings(services string, vulcanAddr string) map[string]string {
+func createElasticsearchWriterMappings(elasticServiceAuthority string) (elasticsearchWriterBasicMapping string, elasticsearchWriterBulkMapping string, err error) {
+	if elasticServiceAuthority == "" {
+		return
+	}
+
+	elasticServiceAuthoritySlice := strings.Split(elasticServiceAuthority, ":")
+	if len(elasticServiceAuthoritySlice) != 2 {
+		err = fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", elasticServiceAuthority)
+		return "", "", err
+	}
+	if elasticServiceAuthoritySlice[0] == "" || elasticServiceAuthoritySlice[1] == "" {
+		err = fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", elasticServiceAuthority)
+		return "", "", err
+	}
+	elasticsearchWriterBasicMapping = resolveURL(elasticServiceAuthority)
+	elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
+	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, elasticServiceAuthority)
+	return
+}
+
+func createWriterMappings(authorities string) (map[string]string, error) {
 	writerMappings := make(map[string]string)
-	serviceSlice := strings.Split(services, ",")
-	for _, service := range serviceSlice {
-		writerURL := resolveWriterURL(service, vulcanAddr)
-		writerMappings[service] = writerURL
-		log.Infof("Using writer url: %s for service: %s", writerURL, service)
+	authoritiesSlice := strings.Split(authorities, ",")
+	for _, authority := range authoritiesSlice {
+		serviceSlice := strings.Split(authority, ":")
+		if len(serviceSlice) != 2 {
+			return nil, fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", authority)
+		}
+		if serviceSlice[0] == "" || serviceSlice[1] == "" {
+			return nil, fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", authority)
+		}
+		writerURL := resolveURL(authority)
+		writerMappings[serviceSlice[0]] = writerURL
+		log.Infof("Using writer url: %s for service: %s", writerURL, serviceSlice[0])
 	}
-	return writerMappings
-}
-func resolveWriterURL(service string, vulcanAddr string) string {
-	wr := strings.Split(service, ":")
-	if len(wr) > 1 {
-		return "http://localhost:" + wr[1]
-	}
-	return vulcanAddr + "/__" + service
+	return writerMappings, nil
 }
 
-func runServer(baseURLMappings map[string]string, elasticsearchWriter string, port string, vulcanAddr string, topic string) {
+func resolveURL(authority string) string {
+	return "http://" + authority
+}
 
-	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriter, vulcanAddr, topic}
+func runServer(baseURLMappings map[string]string, elasticsearchWriter string, port string, kafkaProxyURL string, topic string) {
+
+	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriter, kafkaProxyURL, topic}
 	var r http.Handler
 	if elasticsearchWriter != "" {
 		r = router(httpHandlers, true)

@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"net/http"
-
 	"io"
 	"io/ioutil"
+	"net/http"
 
 	"github.com/Financial-Times/go-fthealth/v1a"
 	log "github.com/Sirupsen/logrus"
@@ -14,7 +14,7 @@ import (
 type httpHandlers struct {
 	baseURLMappings        map[string]string
 	elasticsearchWriterUrl string
-	vulcanAddr             string
+	kafkaProxyURL          string
 	topic                  string
 }
 
@@ -52,7 +52,7 @@ func (hh *httpHandlers) elasticHealthCheck() v1a.Check {
 }
 
 func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
-	_, err := checkProxyConnection(hh.vulcanAddr)
+	_, err := checkProxyConnection(hh.kafkaProxyURL)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Error reading request body: %v", err.Error()), err
 	}
@@ -75,14 +75,13 @@ func (hh *httpHandlers) checkCanConnectToElasticsearchWriter() (string, error) {
 	return "", nil
 }
 
-func checkProxyConnection(vulcanAddr string) (body []byte, err error) {
+func checkProxyConnection(kafkaProxyURL string) (body []byte, err error) {
 	//check if proxy is running and topic is present
-	req, err := http.NewRequest("GET", vulcanAddr+"/topics", nil)
+	req, err := http.NewRequest("GET", kafkaProxyURL+"/topics", nil)
 	if err != nil {
 		log.Errorf("Creating kafka-proxy check resulted in error: %v", err.Error())
 		return nil, err
 	}
-	req.Host = "kafka"
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Errorf("Healthcheck: Execution of kafka-proxy GET request resulted in error: %v", err.Error())
@@ -95,7 +94,7 @@ func checkProxyConnection(vulcanAddr string) (body []byte, err error) {
 		resp.Body.Close()
 	}()
 	if resp == nil {
-		return nil, fmt.Errorf("Connecting to kafka-proxy was unsuccessful.")
+		return nil, errors.New("Connecting to kafka-proxy was unsuccessful.")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Connecting to kafka-proxy was unsuccessful. Status was %v", resp.StatusCode)

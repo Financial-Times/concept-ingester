@@ -14,13 +14,13 @@ Incremental counters both for neo and elasticsearch are configured.
 * `go install`
 
 ## Running in a cluster
-* `$GOPATH/bin/concept-ingester --services-list="people-rw-neo4j-blue,organisations-rw-neo4j-blue" --port="8081" --vulcan_addr="http://localhost:8080" --consumer_group_id="TestConcepts" --consumer_autocommit_enable=true --topic="Concept" --consumer_offset="smallest" --consumer_queue_id="kafka" --throttle=10`
+* `$GOPATH/bin/concept-ingester --service-authorities-list="people-rw-neo4j-blue:8080,organisations-rw-neo4j-blue:8080" --port="8081" --kafka-proxy-authority="http://localhost:8080" --consumer-group-id="TestConcepts" --consumer-autocommit-enable=true --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka" --throttle=10`
 
 Some comments about configuration parameters:  
-* --vulcan_addr     the vulcan address, host and port
-* --services-list   comma separated list of neo4j writers - do not append a port for running in the cluster
-* --elastic-service elasticsearch writer name
-* --topic, --consumer_group_id, --consumer_autocommit_enable, --consumer_offset, --consumer_queue_id see the message-queue-gonsumer library  
+* --kafka-proxy-authority   the kafka proxy authority, host and port
+* --service-authorities     comma separated list of neo4j writers authorities, each pair should be provided as host:port
+* --elastic-service-authority elasticsearch writer authority, host and port
+* --topic, --consumer-group-id, --consumer-autocommit-enable, --consumer-offset, --consumer-queue-id see the message-queue-gonsumer library
 
 ## Healthchecks
 * Check connectivity [http://localhost:8080/__health](http://localhost:8080/__health)
@@ -28,6 +28,6 @@ Some comments about configuration parameters:
 
 ##Examples:
 ### How to run locally not in the cluster
-`concept-ingester --services-list="alphaville-series-rw-neo4j:8092" --port="8089" --vulcan_addr="http://localhost:8082" --consumer_group_id="alphaville-series" --topic="Concept" --consumer_of fset="smallest" --consumer_queue_id="kafka"
+`concept-ingester --service-authorities-list="localhost:8092" --port="8089" --kafka-proxy-authority="http://localhost:8082" --consumer-group-id="alphaville-series" --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka"
 `  
-To run locally against local writers, specify the port each of these writers are running on (the writer address will be resolved to localhost:[specified-port]). Override the vulcan-addr parameter to point to the host:port of a kafka-rest-proxy.
+To run locally against local writers just use localhost and the port each writer is running on. Override the kafka-authority parameter to point to the host:port of a kafka-rest-proxy.
