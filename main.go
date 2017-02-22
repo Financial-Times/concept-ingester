@@ -280,6 +280,7 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 		return err
 	}
 
+	log.Infof("Processing message to service: %v", writerUrl)
 	err = sendToWriter(ingestionType, msg.Body, uuid, writerUrl)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
@@ -309,7 +310,7 @@ func extractMessageTypeAndId(headers map[string]string) (string, string) {
 }
 
 func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWriter string) error {
-
+	log.Infof("Sending message to writer: %v", elasticWriter)
 	request, reqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 	if err != nil {
 		log.Errorf("Cannot create write request: [%v]", err)
