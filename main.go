@@ -183,7 +183,7 @@ func createElasticsearchWriterMappings(elasticServiceAuthority string) (elastics
 	}
 	elasticsearchWriterBasicMapping = resolveURL(elasticServiceAuthority)
 	elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
-	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, elasticServiceAuthority)
+	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, elasticServiceAuthoritySlice[0])
 	return
 }
 
@@ -209,11 +209,11 @@ func resolveURL(authority string) string {
 	return "http://" + authority
 }
 
-func runServer(baseURLMappings map[string]string, elasticsearchWriter string, port string, kafkaProxyURL string, topic string) {
+func runServer(baseURLMappings map[string]string, elasticsearchWriterURL string, port string, kafkaProxyURL string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriter, kafkaProxyURL, topic}
+	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriterURL, kafkaProxyURL, topic}
 	var r http.Handler
-	if elasticsearchWriter != "" {
+	if elasticsearchWriterURL != "" {
 		r = router(httpHandlers, true)
 	} else {
 		r = router(httpHandlers, false)
@@ -238,7 +238,7 @@ func runServer(baseURLMappings map[string]string, elasticsearchWriter string, po
 func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
 
 	servicesRouter := mux.NewRouter()
-	var checks []v1a.Check = []v1a.Check{hh.kafkaProxyHealthCheck(), hh.kafkaProxyHealthCheck()}
+	var checks []v1a.Check = []v1a.Check{hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()}
 
 	if includeElasticsearchWriter {
 		checks = append(checks, hh.elasticHealthCheck())
