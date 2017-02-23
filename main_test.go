@@ -188,7 +188,7 @@ func TestUnsuccessfulWriterMappingsCreation(t *testing.T) {
 
 func TestSuccessfulAddressHostExtraction(t *testing.T) {
 	testCases := []struct {
-		address           string
+		address      string
 		expectedHost string
 	}{
 		{"http://localhost:8080", "localhost"},
