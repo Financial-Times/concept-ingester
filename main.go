@@ -37,21 +37,6 @@ var httpClient = http.Client{
 	},
 }
 
-type urlAuthority struct {
-	host string
-	port string
-}
-
-func (ua *urlAuthority) toString() string {
-	if ua.host != "" && ua.port != "" {
-		return ua.host + ":" + ua.port
-	}
-	if ua.host != "" {
-		return ua.host
-	}
-	return ua.port
-}
-
 func main() {
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
@@ -190,13 +175,13 @@ func createElasticsearchWriterMappings(elasticServiceAddress string) (elasticsea
 	if elasticServiceAddress == "" {
 		return
 	}
-	urlAuthority, err := extractURLAuthority(elasticServiceAddress)
+	host, err := extractAddressHost(elasticServiceAddress)
 	if err != nil {
 		return "", "", err
 	}
 	elasticsearchWriterBasicMapping = elasticServiceAddress
 	elasticsearchWriterBulkMapping = elasticServiceAddress + "/bulk"
-	log.Infof("Using writer address: %s for service: %s", elasticsearchWriterBasicMapping, urlAuthority.host)
+	log.Infof("Using writer address: %s for service: %s", elasticsearchWriterBasicMapping, host)
 	return
 }
 
@@ -204,29 +189,29 @@ func createWriterMappings(services string) (map[string]string, error) {
 	writerMappings := make(map[string]string)
 	servicesSlice := strings.Split(services, ",")
 	for _, serviceAddress := range servicesSlice {
-		urlAuthority, err := extractURLAuthority(serviceAddress)
+		host, err := extractAddressHost(serviceAddress)
 		if err != nil {
 			return nil, err
 		}
-		writerMappings[urlAuthority.host] = serviceAddress
-		log.Infof("Using writer address: %s for service: %s", serviceAddress, urlAuthority.host)
+		writerMappings[host] = serviceAddress
+		log.Infof("Using writer address: %s for service: %s", serviceAddress, host)
 	}
 	return writerMappings, nil
 }
 
-func extractURLAuthority(address string) (*urlAuthority, error) {
+func extractAddressHost(address string) (string, error) {
 	if !govalidator.IsURL(address) {
-		return nil, fmt.Errorf("Address '%s' is not a valid URL", address)
+		return "", fmt.Errorf("Address '%s' is not a valid URL", address)
 	}
 	validURL, err := url.Parse(address)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to parse address %s: %s", address, err)
+		return "", fmt.Errorf("Failed to parse address %s: %s", address, err)
 	}
 	authoritySlice := strings.Split(validURL.Host, ":")
 	if len(authoritySlice) != 2 {
-		return nil, fmt.Errorf("Address '%s' is invalid. Example of an expected value 'http://localhost:8080'", address)
+		return "", fmt.Errorf("Address '%s' is invalid. Example of an expected value 'http://localhost:8080'", address)
 	}
-	return &urlAuthority{authoritySlice[0], authoritySlice[1]}, nil
+	return authoritySlice[0], nil
 }
 
 func runServer(baseURLMappings map[string]string, elasticsearchWriterAddress string, port string, kafkaProxyAddress string, topic string) {

@@ -186,25 +186,25 @@ func TestUnsuccessfulWriterMappingsCreation(t *testing.T) {
 	assertion.Error(err)
 }
 
-func TestSuccessfulURLAuthorityExtraction(t *testing.T) {
+func TestSuccessfulAddressHostExtraction(t *testing.T) {
 	testCases := []struct {
 		address           string
-		expectedAuthority urlAuthority
+		expectedHost string
 	}{
-		{"http://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
-		{"https://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
-		{"tcp://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
+		{"http://localhost:8080", "localhost"},
+		{"https://localhost:8080", "localhost"},
+		{"tcp://localhost:8080", "localhost"},
 	}
 
 	assertion := assert.New(t)
 	for _, tc := range testCases {
-		authority, err := extractURLAuthority(tc.address)
+		host, err := extractAddressHost(tc.address)
 		assertion.NoError(err)
-		assertion.Equal(tc.expectedAuthority.host, authority.host)
+		assertion.Equal(tc.expectedHost, host)
 	}
 }
 
-func TestUnsuccessfulURLAuthorityExtraction(t *testing.T) {
+func TestUnsuccessfulAddressHostExtraction(t *testing.T) {
 	testCases := []struct {
 		address string
 	}{
@@ -218,7 +218,7 @@ func TestUnsuccessfulURLAuthorityExtraction(t *testing.T) {
 
 	assertion := assert.New(t)
 	for _, tc := range testCases {
-		_, err := extractURLAuthority(tc.address)
+		_, err := extractAddressHost(tc.address)
 		assertion.Error(err)
 	}
 }
@@ -246,23 +246,6 @@ func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
 	assertion := assert.New(t)
 	assertion.Equal("", writerAddress)
 	assertion.Error(err, "No configured writer for concept: "+invalidMessageType)
-}
-
-func TestUrlAuthorityToString(t *testing.T) {
-	testCases := []struct {
-		authority               urlAuthority
-		expectedAuthorityString string
-	}{
-		{urlAuthority{host: "localhost", port: "8080"}, "localhost:8080"},
-		{urlAuthority{host: "localhost"}, "localhost"},
-		{urlAuthority{port: "8080"}, "8080"},
-	}
-
-	assertion := assert.New(t)
-	for _, tc := range testCases {
-		authorityString := tc.authority.toString()
-		assertion.Equal(tc.expectedAuthorityString, authorityString)
-	}
 }
 
 func createMessage(messageID string, messageType string) queueConsumer.Message {
