@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,6 +26,9 @@ import (
 	"github.com/rcrowley/go-metrics"
 )
 
+var validHttpAddress = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
+var validTcpAddress = regexp.MustCompile(`^(?P<protocol>tcp):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
+
 var httpClient = http.Client{
 	Transport: &http.Transport{
 		MaxIdleConnsPerHost: 128,
@@ -39,15 +43,15 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 
-	serviceAuthorities := app.String(cli.StringOpt{
-		Name:   "service-authorities",
-		Desc:   "A comma separated list of neo4j writer service authorities",
-		EnvVar: "SERVICE_AUTHORITIES",
+	services := app.String(cli.StringOpt{
+		Name:   "services",
+		Desc:   "A comma separated list of neo4j writer service addresses",
+		EnvVar: "SERVICES",
 	})
-	elasticServiceAuthority := app.String(cli.StringOpt{
-		Name:   "elastic-service-authority",
-		Desc:   "elasticsearch writer service authority.",
-		EnvVar: "ELASTICSEARCH_WRITER_AUTHORITY",
+	elasticServiceAddress := app.String(cli.StringOpt{
+		Name:   "elastic-service-address",
+		Desc:   "elasticsearch writer service address",
+		EnvVar: "ELASTICSEARCH_WRITER_ADDRESS",
 	})
 	port := app.String(cli.StringOpt{
 		Name:   "port",
@@ -55,16 +59,16 @@ func main() {
 		Desc:   "Port to listen on",
 		EnvVar: "PORT",
 	})
-	kafkaProxyAuthority := app.String(cli.StringOpt{
-		Name:   "kafka-proxy-authority",
-		Value:  "kafka:8082",
-		Desc:   "Kafka proxy authority",
-		EnvVar: "KAFKA_PROXY_AUTHORITY",
+	kafkaProxyAddress := app.String(cli.StringOpt{
+		Name:   "kafka-proxy-address",
+		Value:  "http://kafka-proxy:8082",
+		Desc:   "Kafka proxy address",
+		EnvVar: "KAFKA_PROXY_ADDRESS",
 	})
 	consumerGroupID := app.String(cli.StringOpt{
 		Name:   "consumer-group-id",
 		Value:  "ConceptIngesterGroup",
-		Desc:   "Kafka group id used for message consuming.",
+		Desc:   "Kafka group id used for message consuming",
 		EnvVar: "GROUP_ID",
 	})
 	consumerQueue := app.String(cli.StringOpt{
@@ -73,11 +77,11 @@ func main() {
 		Desc:   "The kafka queue id",
 		EnvVar: "QUEUE_ID",
 	})
-	graphiteTCPAuthority := app.String(cli.StringOpt{
-		Name:   "graphite-tcp-authority",
+	graphiteTCPAddress := app.String(cli.StringOpt{
+		Name:   "graphite-tcp-address",
 		Value:  "",
-		Desc:   "Graphite TCP authority, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
-		EnvVar: "GRAPHITE_TCP_AUTHORITY",
+		Desc:   "Graphite TCP adress, e.g. tcp://graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
+		EnvVar: "GRAPHITE_TCP_ADDRESS",
 	})
 	graphitePrefix := app.String(cli.StringOpt{
 		Name:   "graphite-prefix",
@@ -94,12 +98,12 @@ func main() {
 	consumerOffset := app.String(cli.StringOpt{
 		Name:   "consumer-offset",
 		Value:  "",
-		Desc:   "Kafka read offset.",
+		Desc:   "Kafka read offset",
 		EnvVar: "OFFSET"})
 	consumerAutoCommitEnable := app.Bool(cli.BoolOpt{
 		Name:   "consumer-autocommit-enable",
 		Value:  true,
-		Desc:   "Enable autocommit for small messages.",
+		Desc:   "Enable autocommit for small messages",
 		EnvVar: "COMMIT_ENABLE"})
 	topic := app.String(cli.StringOpt{
 		Name:   "topic",
@@ -113,9 +117,8 @@ func main() {
 		EnvVar: "THROTTLE"})
 
 	app.Action = func() {
-		kafkaProxyURL := resolveURL(*kafkaProxyAuthority)
 		consumerConfig := queueConsumer.QueueConfig{
-			Addrs:                []string{kafkaProxyURL},
+			Addrs:                []string{*kafkaProxyAddress},
 			Group:                *consumerGroupID,
 			Queue:                *consumerQueue,
 			Topic:                *topic,
@@ -124,11 +127,11 @@ func main() {
 			ConcurrentProcessing: true,
 		}
 
-		writerMappings, err := createWriterMappings(*serviceAuthorities)
+		writerMappings, err := createWriterMappings(*services)
 		if err != nil {
 			log.Fatal(err)
 		}
-		elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings(*elasticServiceAuthority)
+		elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings(*elasticServiceAddress)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -139,7 +142,10 @@ func main() {
 			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
-		outputMetricsIfRequired(*graphiteTCPAuthority, *graphitePrefix, *logMetrics)
+		err = outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
 
@@ -151,7 +157,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, kafkaProxyURL, *topic)
+		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, *kafkaProxyAddress, *topic)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -167,46 +173,47 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createElasticsearchWriterMappings(elasticServiceAuthority string) (elasticsearchWriterBasicMapping string, elasticsearchWriterBulkMapping string, err error) {
-	if elasticServiceAuthority == "" {
+func createElasticsearchWriterMappings(elasticServiceAddress string) (elasticsearchWriterBasicMapping string, elasticsearchWriterBulkMapping string, err error) {
+	if elasticServiceAddress == "" {
 		return
 	}
-
-	elasticServiceAuthoritySlice := strings.Split(elasticServiceAuthority, ":")
-	if len(elasticServiceAuthoritySlice) != 2 {
-		err = fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", elasticServiceAuthority)
+	components, err := extractAddressComponents(validHttpAddress, elasticServiceAddress)
+	if err != nil {
 		return "", "", err
 	}
-	if elasticServiceAuthoritySlice[0] == "" || elasticServiceAuthoritySlice[1] == "" {
-		err = fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", elasticServiceAuthority)
-		return "", "", err
-	}
-	elasticsearchWriterBasicMapping = resolveURL(elasticServiceAuthority)
-	elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
-	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, elasticServiceAuthoritySlice[0])
+	elasticsearchWriterBasicMapping = elasticServiceAddress
+	elasticsearchWriterBulkMapping = elasticServiceAddress + "/bulk"
+	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, components["host"])
 	return
 }
 
-func createWriterMappings(authorities string) (map[string]string, error) {
+func createWriterMappings(services string) (map[string]string, error) {
 	writerMappings := make(map[string]string)
-	authoritiesSlice := strings.Split(authorities, ",")
-	for _, authority := range authoritiesSlice {
-		serviceSlice := strings.Split(authority, ":")
-		if len(serviceSlice) != 2 {
-			return nil, fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", authority)
+	servicesSlice := strings.Split(services, ",")
+	for _, serviceAddress := range servicesSlice {
+		components, err := extractAddressComponents(validHttpAddress, serviceAddress)
+		if err != nil {
+			return nil, err
 		}
-		if serviceSlice[0] == "" || serviceSlice[1] == "" {
-			return nil, fmt.Errorf("Authority '%s' is invalid. Example of a valid authority: host:port", authority)
-		}
-		writerURL := resolveURL(authority)
-		writerMappings[serviceSlice[0]] = writerURL
-		log.Infof("Using writer url: %s for service: %s", writerURL, serviceSlice[0])
+		writerMappings[components["host"]] = serviceAddress
+		log.Infof("Using writer url: %s for service: %s", serviceAddress, components["host"])
 	}
 	return writerMappings, nil
 }
 
-func resolveURL(authority string) string {
-	return "http://" + authority
+func extractAddressComponents(expression *regexp.Regexp, address string) (map[string]string, error) {
+	match := expression.FindStringSubmatch(address)
+	if match == nil {
+		return nil, fmt.Errorf("Address '%s' is invalid. Example of a valid address: http://host:8080", address)
+	}
+	components := make(map[string]string)
+	for index, name := range expression.SubexpNames() {
+		if index == 0 || name == "" {
+			continue
+		}
+		components[name] = match[index]
+	}
+	return components, nil
 }
 
 func runServer(baseURLMappings map[string]string, elasticsearchWriterURL string, port string, kafkaProxyURL string, topic string) {
@@ -365,13 +372,19 @@ func readBody(resp *http.Response) {
 	resp.Body.Close()
 }
 
-func outputMetricsIfRequired(graphiteTCPAuthority string, graphitePrefix string, logMetrics bool) {
-	if graphiteTCPAuthority != "" {
-		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAuthority)
+func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) error {
+	if graphiteTCPAddress != "" {
+		components, err := extractAddressComponents(validTcpAddress, graphiteTCPAddress)
+		if err != nil {
+			return err
+		}
+		graphiteAuthority := components["host"] + ":" + components["port"]
+		addr, _ := net.ResolveTCPAddr("tcp", graphiteAuthority)
 		go graphite.Graphite(metrics.DefaultRegistry, 5*time.Second, graphitePrefix, addr)
 	}
 	if logMetrics { //useful locally
 		//messy use of the 'standard' log package here as this method takes the log struct, not an interface, so can't use logrus.Logger
 		go metrics.Log(metrics.DefaultRegistry, 60*time.Second, standardLog.New(os.Stdout, "metrics", standardLog.Lmicroseconds))
 	}
+	return nil
 }

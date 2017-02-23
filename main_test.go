@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var peopleServiceAuthority = "people-rw-neo4j-blue:8080"
-var organisationsServiceAuthority = "organisations-rw-neo4j-blue:8080"
+var peopleServiceAddress = "http://people-rw-neo4j-blue:8080"
+var organisationsServiceAddress = "http://organisations-rw-neo4j-blue:8080"
 
 var correctWriterMappings = map[string]string{
 	"people-rw-neo4j-blue":        "http://people-rw-neo4j-blue:8080",
@@ -22,6 +23,8 @@ var correctWriterMappings = map[string]string{
 var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
 var validMessageTypeOrganisations = "organisations"
 var invalidMessageType = "animals"
+
+var validExpression = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
 
 func TestMessageProcessingHappyPathIncrementsSuccessMeter(t *testing.T) {
 	// Test server that always responds with 200 code
@@ -152,14 +155,14 @@ func getElasticsearchCount() int64 {
 }
 
 func TestSuccessfulElasticsearchWriterMappingsCreation(t *testing.T) {
-	elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings("elasticsearchHost:8080")
+	elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings("http://elasticsearchHost:8080")
 	assertion := assert.New(t)
 	assertion.NoError(err)
 	assertion.EqualValues("http://elasticsearchHost:8080", elasticsearchWriterBasicMapping)
 	assertion.EqualValues("http://elasticsearchHost:8080/bulk", elasticsearchWriterBulkMapping)
 }
 
-func TestElasticsearchWriterMappingsCreationWithEmptyAuthority(t *testing.T) {
+func TestElasticsearchWriterMappingsCreationWithEmptyAddress(t *testing.T) {
 	elasticsearchWriterBasicMapping, elasticsearchWriterBulkMapping, err := createElasticsearchWriterMappings("")
 	assertion := assert.New(t)
 	assertion.NoError(err)
@@ -168,50 +171,72 @@ func TestElasticsearchWriterMappingsCreationWithEmptyAuthority(t *testing.T) {
 }
 
 func TestUnsuccessfulElasticsearchWriterMappingsCreation(t *testing.T) {
-	testCases := []struct {
-		authority string
-	}{
-		{":"},
-		{"host:"},
-		{":port"},
-		{"host:port:"},
-		{":host:port"},
-		{"host::port"},
-	}
-
+	_, _, err := createElasticsearchWriterMappings("http://invalidAddress:8080/invalid")
 	assertion := assert.New(t)
-	for _, tc := range testCases {
-		_, _, err := createElasticsearchWriterMappings(tc.authority)
-		assertion.Error(err)
-	}
+	assertion.Error(err)
 }
 
 func TestSuccessfulWriterMappingsCreation(t *testing.T) {
-	writerMappings, err := createWriterMappings(peopleServiceAuthority + "," + organisationsServiceAuthority)
+	writerMappings, err := createWriterMappings(peopleServiceAddress + "," + organisationsServiceAddress)
 	assertion := assert.New(t)
 	assertion.NoError(err)
 	assertion.EqualValues(correctWriterMappings, writerMappings, "Should have two mappings")
 }
 
 func TestUnsuccessfulWriterMappingsCreation(t *testing.T) {
+	_, err := createWriterMappings("http://invalidAddress:8080/invalid")
+	assertion := assert.New(t)
+	assertion.Error(err)
+}
+
+func TestSuccessfulAddressComponentsExtraction(t *testing.T) {
 	testCases := []struct {
-		authorities string
+		address            string
+		expectedComponents []string
 	}{
-		{":"},
-		{"host:"},
-		{":port"},
-		{"host:port:"},
-		{":host:port"},
-		{"host::port"},
-		{"host:,host:port"},
-		{":port,host:port"},
-		{","},
-		{":,:"},
+		{"http://localhost:1", []string{"http", "localhost", "1"}},
+		{"http://localhost:12", []string{"http", "localhost", "12"}},
+		{"http://localhost:123", []string{"http", "localhost", "123"}},
+		{"http://localhost:1234", []string{"http", "localhost", "1234"}},
+		{"http://localhost:12345", []string{"http", "localhost", "12345"}},
+		{"http://com.ft.address:8080", []string{"http", "com.ft.address", "8080"}},
 	}
 
 	assertion := assert.New(t)
 	for _, tc := range testCases {
-		_, err := createWriterMappings(tc.authorities)
+		components, err := extractAddressComponents(validExpression, tc.address)
+		assertion.NoError(err)
+		assertion.True(components["protocol"] == tc.expectedComponents[0], "Components must contain 'protocol' key equal to:"+tc.expectedComponents[0])
+		assertion.True(components["host"] == tc.expectedComponents[1], "Components must contain 'host' key equal to:"+tc.expectedComponents[1])
+		assertion.True(components["port"] == tc.expectedComponents[2], "Components must contain 'port' key equal to:"+tc.expectedComponents[2])
+	}
+}
+
+func TestUnsuccessfulAddressComponentsExtraction(t *testing.T) {
+	testCases := []struct {
+		address string
+	}{
+		{"tcp://localhost:8080"},
+		{"http://:8080"},
+		{"http://localhost:"},
+		{"http://localhost:8080/"},
+		{"http://localhost:8080/path"},
+		{"http://:"},
+		{"://localhost:8080"},
+		{"//localhost:8080"},
+		{"localhost:8080"},
+		{":"},
+		{"http://localhost::8080"},
+		{"http:://localhost:8080"},
+		{"http://localhost:8080:"},
+		{"http:/localhost:8080"},
+		{"http:localhost:8080"},
+		{"http:localhost:123456"},
+	}
+
+	assertion := assert.New(t)
+	for _, tc := range testCases {
+		_, err := extractAddressComponents(validExpression, tc.address)
 		assertion.Error(err)
 	}
 }
@@ -239,6 +264,13 @@ func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
 	assertion := assert.New(t)
 	assertion.Equal("", writerUrl)
 	assertion.Error(err, "No configured writer for concept: "+invalidMessageType)
+}
+
+func TestOutputMetricsIfRequiredWithInvalidAddress(t *testing.T) {
+	invalidProtocolAddress := "http://localhost:8080"
+	err := outputMetricsIfRequired(invalidProtocolAddress, "graphite-prefix", false)
+	assertion := assert.New(t)
+	assertion.Error(err)
 }
 
 func createMessage(messageID string, messageType string) queueConsumer.Message {
