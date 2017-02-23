@@ -42,7 +42,7 @@ func main() {
 	app := cli.App("concept-ingester", "A microservice that consumes concept messages from Kafka and routes them to the appropriate writer")
 
 	services := app.String(cli.StringOpt{
-		Name:   "services",
+		Name:   "services-list",
 		Desc:   "A comma separated list of neo4j writer service addresses",
 		EnvVar: "SERVICES",
 	})

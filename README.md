@@ -14,12 +14,12 @@ Incremental counters both for neo and elasticsearch are configured.
 * `go install`
 
 ## Running in a cluster
-* `$GOPATH/bin/concept-ingester --service-authorities-list="http://people-rw-neo4j-blue:8080,organisations-rw-neo4j-blue:8080" --port="8081" --kafka-proxy-address="http://localhost:8080" --consumer-group-id="TestConcepts" --consumer-autocommit-enable=true --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka" --throttle=10`
+* `$GOPATH/bin/concept-ingester --services-list="http://people-rw-neo4j-blue:8080,http://organisations-rw-neo4j-blue:8080" --port="8081" --kafka-proxy-address="http://localhost:8080" --consumer-group-id="TestConcepts" --consumer-autocommit-enable=true --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka" --throttle=10`
 
 Some comments about configuration parameters:  
-* --kafka-proxy-address     the kafka proxy address, host and port
-* --service-authorities     comma separated list of neo4j writers authorities, each pair should be provided as host:port
-* --elastic-service-address elasticsearch writer address, host and port
+* --kafka-proxy-address         the kafka proxy address, host and port
+* --services-list               comma separated list of neo4j writers authorities, each pair should be provided as host:port
+* --elastic-service-address     elasticsearch writer address, host and port
 * --topic, --consumer-group-id, --consumer-autocommit-enable, --consumer-offset, --consumer-queue-id see the message-queue-gonsumer library
 
 ## Healthchecks
@@ -28,6 +28,6 @@ Some comments about configuration parameters:
 
 ##Examples:
 ### How to run locally not in the cluster
-`concept-ingester --service-authorities-list="http://localhost:8092" --port="8089" --kafka-proxy-address="http://localhost:8082" --consumer-group-id="alphaville-series" --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka"
+`concept-ingester --services-list="http://localhost:8092" --port="8089" --kafka-proxy-address="http://localhost:8082" --consumer-group-id="alphaville-series" --topic="Concept" --consumer-offset="smallest" --consumer-queue-id="kafka"
 `  
 To run locally against local writers just use localhost and the port each writer is running on. Override the kafka-address parameter to point to the host:port of a kafka-rest-proxy.
