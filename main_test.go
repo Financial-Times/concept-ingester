@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -23,8 +22,6 @@ var correctWriterMappings = map[string]string{
 var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
 var validMessageTypeOrganisations = "organisations"
 var invalidMessageType = "animals"
-
-var validExpression = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
 
 func TestMessageProcessingHappyPathIncrementsSuccessMeter(t *testing.T) {
 	// Test server that always responds with 200 code
@@ -171,7 +168,7 @@ func TestElasticsearchWriterMappingsCreationWithEmptyAddress(t *testing.T) {
 }
 
 func TestUnsuccessfulElasticsearchWriterMappingsCreation(t *testing.T) {
-	_, _, err := createElasticsearchWriterMappings("http://invalidAddress:8080/invalid")
+	_, _, err := createElasticsearchWriterMappings("http//invalidAddress:8080")
 	assertion := assert.New(t)
 	assertion.Error(err)
 }
@@ -184,59 +181,44 @@ func TestSuccessfulWriterMappingsCreation(t *testing.T) {
 }
 
 func TestUnsuccessfulWriterMappingsCreation(t *testing.T) {
-	_, err := createWriterMappings("http://invalidAddress:8080/invalid")
+	_, err := createWriterMappings("http:/invalidAddress:8080")
 	assertion := assert.New(t)
 	assertion.Error(err)
 }
 
-func TestSuccessfulAddressComponentsExtraction(t *testing.T) {
+func TestSuccessfulURLAuthorityExtraction(t *testing.T) {
 	testCases := []struct {
-		address            string
-		expectedComponents []string
+		address           string
+		expectedAuthority urlAuthority
 	}{
-		{"http://localhost:1", []string{"http", "localhost", "1"}},
-		{"http://localhost:12", []string{"http", "localhost", "12"}},
-		{"http://localhost:123", []string{"http", "localhost", "123"}},
-		{"http://localhost:1234", []string{"http", "localhost", "1234"}},
-		{"http://localhost:12345", []string{"http", "localhost", "12345"}},
-		{"http://com.ft.address:8080", []string{"http", "com.ft.address", "8080"}},
+		{"http://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
+		{"https://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
+		{"tcp://localhost:8080", urlAuthority{host: "localhost", port: "8080"}},
 	}
 
 	assertion := assert.New(t)
 	for _, tc := range testCases {
-		components, err := extractAddressComponents(validExpression, tc.address)
+		authority, err := extractURLAuthority(tc.address)
 		assertion.NoError(err)
-		assertion.True(components["protocol"] == tc.expectedComponents[0], "Components must contain 'protocol' key equal to:"+tc.expectedComponents[0])
-		assertion.True(components["host"] == tc.expectedComponents[1], "Components must contain 'host' key equal to:"+tc.expectedComponents[1])
-		assertion.True(components["port"] == tc.expectedComponents[2], "Components must contain 'port' key equal to:"+tc.expectedComponents[2])
+		assertion.Equal(tc.expectedAuthority.host, authority.host)
 	}
 }
 
-func TestUnsuccessfulAddressComponentsExtraction(t *testing.T) {
+func TestUnsuccessfulURLAuthorityExtraction(t *testing.T) {
 	testCases := []struct {
 		address string
 	}{
-		{"tcp://localhost:8080"},
-		{"http://:8080"},
-		{"http://localhost:"},
-		{"http://localhost:8080/"},
-		{"http://localhost:8080/path"},
-		{"http://:"},
-		{"://localhost:8080"},
-		{"//localhost:8080"},
-		{"localhost:8080"},
-		{":"},
-		{"http://localhost::8080"},
-		{"http:://localhost:8080"},
-		{"http://localhost:8080:"},
-		{"http:/localhost:8080"},
 		{"http:localhost:8080"},
-		{"http:localhost:123456"},
+		{"http//localhost:8080"},
+		{"http:/localhost:8080"},
+		{"http://:8080"},
+		{"http://localhost"},
+		{"http://localhost:"},
 	}
 
 	assertion := assert.New(t)
 	for _, tc := range testCases {
-		_, err := extractAddressComponents(validExpression, tc.address)
+		_, err := extractURLAuthority(tc.address)
 		assertion.Error(err)
 	}
 }
@@ -266,11 +248,21 @@ func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
 	assertion.Error(err, "No configured writer for concept: "+invalidMessageType)
 }
 
-func TestOutputMetricsIfRequiredWithInvalidAddress(t *testing.T) {
-	invalidProtocolAddress := "http://localhost:8080"
-	err := outputMetricsIfRequired(invalidProtocolAddress, "graphite-prefix", false)
+func TestUrlAuthorityToString(t *testing.T) {
+	testCases := []struct {
+		authority               urlAuthority
+		expectedAuthorityString string
+	}{
+		{urlAuthority{host: "localhost", port: "8080"}, "localhost:8080"},
+		{urlAuthority{host: "localhost"}, "localhost"},
+		{urlAuthority{port: "8080"}, "8080"},
+	}
+
 	assertion := assert.New(t)
-	assertion.Error(err)
+	for _, tc := range testCases {
+		authorityString := tc.authority.toString()
+		assertion.Equal(tc.expectedAuthorityString, authorityString)
+	}
 }
 
 func createMessage(messageID string, messageType string) queueConsumer.Message {

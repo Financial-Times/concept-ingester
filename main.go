@@ -7,9 +7,9 @@ import (
 	standardLog "log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,14 +20,12 @@ import (
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
+	"github.com/asaskevich/govalidator"
 	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
 )
-
-var validHTTPAddress = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
-var validTCPAddress = regexp.MustCompile(`^(?P<protocol>tcp):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
 
 var httpClient = http.Client{
 	Transport: &http.Transport{
@@ -37,6 +35,21 @@ var httpClient = http.Client{
 			KeepAlive: 30 * time.Second,
 		}).Dial,
 	},
+}
+
+type urlAuthority struct {
+	host string
+	port string
+}
+
+func (ua *urlAuthority) toString() string {
+	if ua.host != "" && ua.port != "" {
+		return ua.host + ":" + ua.port
+	}
+	if ua.host != "" {
+		return ua.host
+	}
+	return ua.port
 }
 
 func main() {
@@ -77,11 +90,11 @@ func main() {
 		Desc:   "The kafka queue id",
 		EnvVar: "QUEUE_ID",
 	})
-	graphiteTCPAddress := app.String(cli.StringOpt{
+	graphiteTCPAuthority := app.String(cli.StringOpt{
 		Name:   "graphite-tcp-address",
 		Value:  "",
-		Desc:   "Graphite TCP adress, e.g. tcp://graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
-		EnvVar: "GRAPHITE_TCP_ADDRESS",
+		Desc:   "Graphite TCP authority, e.g. graphite.ft.com:2003. Leave as default if you do NOT want to output to graphite (e.g. if running locally)",
+		EnvVar: "GRAPHITE_TCP_AUTHORITY",
 	})
 	graphitePrefix := app.String(cli.StringOpt{
 		Name:   "graphite-prefix",
@@ -142,7 +155,7 @@ func main() {
 			ticker:               time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
-		err = outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
+		err = outputMetricsIfRequired(*graphiteTCPAuthority, *graphitePrefix, *logMetrics)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -177,13 +190,13 @@ func createElasticsearchWriterMappings(elasticServiceAddress string) (elasticsea
 	if elasticServiceAddress == "" {
 		return
 	}
-	components, err := extractAddressComponents(validHTTPAddress, elasticServiceAddress)
+	urlAuthority, err := extractURLAuthority(elasticServiceAddress)
 	if err != nil {
 		return "", "", err
 	}
 	elasticsearchWriterBasicMapping = elasticServiceAddress
 	elasticsearchWriterBulkMapping = elasticServiceAddress + "/bulk"
-	log.Infof("Using writer address: %s for service: %s", elasticsearchWriterBasicMapping, components["host"])
+	log.Infof("Using writer address: %s for service: %s", elasticsearchWriterBasicMapping, urlAuthority.host)
 	return
 }
 
@@ -191,29 +204,29 @@ func createWriterMappings(services string) (map[string]string, error) {
 	writerMappings := make(map[string]string)
 	servicesSlice := strings.Split(services, ",")
 	for _, serviceAddress := range servicesSlice {
-		components, err := extractAddressComponents(validHTTPAddress, serviceAddress)
+		urlAuthority, err := extractURLAuthority(serviceAddress)
 		if err != nil {
 			return nil, err
 		}
-		writerMappings[components["host"]] = serviceAddress
-		log.Infof("Using writer address: %s for service: %s", serviceAddress, components["host"])
+		writerMappings[urlAuthority.host] = serviceAddress
+		log.Infof("Using writer address: %s for service: %s", serviceAddress, urlAuthority.host)
 	}
 	return writerMappings, nil
 }
 
-func extractAddressComponents(expression *regexp.Regexp, address string) (map[string]string, error) {
-	match := expression.FindStringSubmatch(address)
-	if match == nil {
-		return nil, fmt.Errorf("Address '%s' is invalid. Example of a valid address: http://host:8080", address)
+func extractURLAuthority(address string) (*urlAuthority, error) {
+	if !govalidator.IsURL(address) {
+		return nil, fmt.Errorf("Address '%s' is not a valid URL", address)
 	}
-	components := make(map[string]string)
-	for index, name := range expression.SubexpNames() {
-		if index == 0 || name == "" {
-			continue
-		}
-		components[name] = match[index]
+	validURL, err := url.Parse(address)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse address %s: %s", address, err)
 	}
-	return components, nil
+	authoritySlice := strings.Split(validURL.Host, ":")
+	if len(authoritySlice) != 2 {
+		return nil, fmt.Errorf("Address '%s' is invalid. Example of an expected value 'http://localhost:8080'", address)
+	}
+	return &urlAuthority{authoritySlice[0], authoritySlice[1]}, nil
 }
 
 func runServer(baseURLMappings map[string]string, elasticsearchWriterAddress string, port string, kafkaProxyAddress string, topic string) {
@@ -372,17 +385,13 @@ func readBody(resp *http.Response) {
 	resp.Body.Close()
 }
 
-func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) error {
-	if graphiteTCPAddress != "" {
-		components, err := extractAddressComponents(validTCPAddress, graphiteTCPAddress)
-		if err != nil {
-			return err
-		}
-		graphiteAuthority := components["host"] + ":" + components["port"]
-		addr, _ := net.ResolveTCPAddr("tcp", graphiteAuthority)
+func outputMetricsIfRequired(graphiteTCPAuthority string, graphitePrefix string, logMetrics bool) error {
+	if graphiteTCPAuthority != "" {
+		addr, _ := net.ResolveTCPAddr("tcp", graphiteTCPAuthority)
 		go graphite.Graphite(metrics.DefaultRegistry, 5*time.Second, graphitePrefix, addr)
 	}
-	if logMetrics { //useful locally
+	if logMetrics {
+		//useful locally
 		//messy use of the 'standard' log package here as this method takes the log struct, not an interface, so can't use logrus.Logger
 		go metrics.Log(metrics.DefaultRegistry, 60*time.Second, standardLog.New(os.Stdout, "metrics", standardLog.Lmicroseconds))
 	}
