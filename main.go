@@ -26,8 +26,8 @@ import (
 	"github.com/rcrowley/go-metrics"
 )
 
-var validHttpAddress = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
-var validTcpAddress = regexp.MustCompile(`^(?P<protocol>tcp):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
+var validHTTPAddress = regexp.MustCompile(`^(?P<protocol>http):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
+var validTCPAddress = regexp.MustCompile(`^(?P<protocol>tcp):\/\/(?P<host>[^:\/\s]+):(?P<port>[\d]{1,5})$`)
 
 var httpClient = http.Client{
 	Transport: &http.Transport{
@@ -137,9 +137,9 @@ func main() {
 		}
 
 		ing := ingesterService{
-			baseURLMappings:  writerMappings,
-			elasticWriterURL: elasticsearchWriterBulkMapping,
-			ticker:           time.NewTicker(time.Second / time.Duration(*throttle)),
+			baseURLMappings:      writerMappings,
+			elasticWriterAddress: elasticsearchWriterBulkMapping,
+			ticker:               time.NewTicker(time.Second / time.Duration(*throttle)),
 		}
 
 		err = outputMetricsIfRequired(*graphiteTCPAddress, *graphitePrefix, *logMetrics)
@@ -177,13 +177,13 @@ func createElasticsearchWriterMappings(elasticServiceAddress string) (elasticsea
 	if elasticServiceAddress == "" {
 		return
 	}
-	components, err := extractAddressComponents(validHttpAddress, elasticServiceAddress)
+	components, err := extractAddressComponents(validHTTPAddress, elasticServiceAddress)
 	if err != nil {
 		return "", "", err
 	}
 	elasticsearchWriterBasicMapping = elasticServiceAddress
 	elasticsearchWriterBulkMapping = elasticServiceAddress + "/bulk"
-	log.Infof("Using writer url: %s for service: %s", elasticsearchWriterBasicMapping, components["host"])
+	log.Infof("Using writer address: %s for service: %s", elasticsearchWriterBasicMapping, components["host"])
 	return
 }
 
@@ -191,12 +191,12 @@ func createWriterMappings(services string) (map[string]string, error) {
 	writerMappings := make(map[string]string)
 	servicesSlice := strings.Split(services, ",")
 	for _, serviceAddress := range servicesSlice {
-		components, err := extractAddressComponents(validHttpAddress, serviceAddress)
+		components, err := extractAddressComponents(validHTTPAddress, serviceAddress)
 		if err != nil {
 			return nil, err
 		}
 		writerMappings[components["host"]] = serviceAddress
-		log.Infof("Using writer url: %s for service: %s", serviceAddress, components["host"])
+		log.Infof("Using writer address: %s for service: %s", serviceAddress, components["host"])
 	}
 	return writerMappings, nil
 }
@@ -216,14 +216,14 @@ func extractAddressComponents(expression *regexp.Regexp, address string) (map[st
 	return components, nil
 }
 
-func runServer(baseURLMappings map[string]string, elasticsearchWriterURL string, port string, kafkaProxyURL string, topic string) {
+func runServer(baseURLMappings map[string]string, elasticsearchWriterAddress string, port string, kafkaProxyAddress string, topic string) {
 
-	httpHandlers := httpHandlers{baseURLMappings, elasticsearchWriterURL, kafkaProxyURL, topic}
+	handlers := httpHandlers{baseURLMappings, elasticsearchWriterAddress, kafkaProxyAddress, topic}
 	var r http.Handler
-	if elasticsearchWriterURL != "" {
-		r = router(httpHandlers, true)
+	if elasticsearchWriterAddress != "" {
+		r = router(handlers, true)
 	} else {
-		r = router(httpHandlers, false)
+		r = router(handlers, false)
 	}
 
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
@@ -245,7 +245,7 @@ func runServer(baseURLMappings map[string]string, elasticsearchWriterURL string,
 func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
 
 	servicesRouter := mux.NewRouter()
-	var checks []v1a.Check = []v1a.Check{hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()}
+	checks := []v1a.Check{hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()}
 
 	if includeElasticsearchWriter {
 		checks = append(checks, hh.elasticHealthCheck())
@@ -262,10 +262,10 @@ func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
 }
 
 type ingesterService struct {
-	baseURLMappings  map[string]string
-	elasticWriterURL string
-	client           http.Client
-	ticker           *time.Ticker
+	baseURLMappings      map[string]string
+	elasticWriterAddress string
+	client               http.Client
+	ticker               *time.Ticker
 }
 
 func (ing ingesterService) readMessage(msg queueConsumer.Message) {
@@ -277,9 +277,9 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 }
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
-	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
+	ingestionType, uuid := extractMessageTypeAndID(msg.Headers)
 
-	writerUrl, err := resolveWriter(ingestionType, ing.baseURLMappings)
+	writerAddress, err := resolveWriter(ingestionType, ing.baseURLMappings)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -287,8 +287,8 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 		return err
 	}
 
-	log.Infof("Processing message to service: %v", writerUrl)
-	err = sendToWriter(ingestionType, msg.Body, uuid, writerUrl)
+	log.Infof("Processing message to service: %v", writerAddress)
+	err = sendToWriter(ingestionType, msg.Body, uuid, writerAddress)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -296,8 +296,8 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 		return err
 	}
 
-	if ing.elasticWriterURL != "" {
-		err = sendToWriter(ingestionType, msg.Body, uuid, ing.elasticWriterURL)
+	if ing.elasticWriterAddress != "" {
+		err = sendToWriter(ingestionType, msg.Body, uuid, ing.elasticWriterAddress)
 		if err != nil {
 			failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-elasticsearch-FAILURE", metrics.DefaultRegistry)
 			failureMeter.Mark(1)
@@ -312,7 +312,7 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 
 }
 
-func extractMessageTypeAndId(headers map[string]string) (string, string) {
+func extractMessageTypeAndID(headers map[string]string) (string, string) {
 	return headers["Message-Type"], headers["Message-Id"]
 }
 
@@ -343,22 +343,22 @@ func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWrit
 }
 
 func resolveWriter(ingestionType string, URLMappings map[string]string) (string, error) {
-	var writerURL string
+	var writerAddress string
 	for service, URL := range URLMappings {
 		if strings.Contains(service, ingestionType) {
-			writerURL = URL
+			writerAddress = URL
 		}
 	}
-	if writerURL == "" {
+	if writerAddress == "" {
 		return "", fmt.Errorf("No configured writer for concept: %v", ingestionType)
 	}
 
-	return writerURL, nil
+	return writerAddress, nil
 }
 
-func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerURL string) (*http.Request, string, error) {
+func createWriteRequest(ingestionType string, msgBody io.Reader, uuid string, writerAddress string) (*http.Request, string, error) {
 
-	reqURL := writerURL + "/" + ingestionType + "/" + uuid
+	reqURL := writerAddress + "/" + ingestionType + "/" + uuid
 
 	request, err := http.NewRequest("PUT", reqURL, msgBody)
 	if err != nil {
@@ -374,7 +374,7 @@ func readBody(resp *http.Response) {
 
 func outputMetricsIfRequired(graphiteTCPAddress string, graphitePrefix string, logMetrics bool) error {
 	if graphiteTCPAddress != "" {
-		components, err := extractAddressComponents(validTcpAddress, graphiteTCPAddress)
+		components, err := extractAddressComponents(validTCPAddress, graphiteTCPAddress)
 		if err != nil {
 			return err
 		}

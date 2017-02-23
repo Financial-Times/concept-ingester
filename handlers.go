@@ -12,10 +12,10 @@ import (
 )
 
 type httpHandlers struct {
-	baseURLMappings        map[string]string
-	elasticsearchWriterUrl string
-	kafkaProxyURL          string
-	topic                  string
+	baseURLMappings            map[string]string
+	elasticsearchWriterAddress string
+	kafkaProxyAddress          string
+	topic                      string
 }
 
 func (hh *httpHandlers) kafkaProxyHealthCheck() v1a.Check {
@@ -52,7 +52,7 @@ func (hh *httpHandlers) elasticHealthCheck() v1a.Check {
 }
 
 func (hh *httpHandlers) checkCanConnectToKafkaProxy() (string, error) {
-	_, err := checkProxyConnection(hh.kafkaProxyURL)
+	_, err := checkProxyConnection(hh.kafkaProxyAddress)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Error reading request body: %v", err.Error()), err
 	}
@@ -68,16 +68,16 @@ func (hh *httpHandlers) checkCanConnectToWriters() (string, error) {
 }
 
 func (hh *httpHandlers) checkCanConnectToElasticsearchWriter() (string, error) {
-	err := checkWriterAvailability(hh.elasticsearchWriterUrl)
+	err := checkWriterAvailability(hh.elasticsearchWriterAddress)
 	if err != nil {
 		return fmt.Sprintf("Healthcheck: Elasticsearch Concept Writer not available: %v", err.Error()), err
 	}
 	return "", nil
 }
 
-func checkProxyConnection(kafkaProxyURL string) (body []byte, err error) {
+func checkProxyConnection(kafkaProxyAddress string) (body []byte, err error) {
 	//check if proxy is running and topic is present
-	req, err := http.NewRequest("GET", kafkaProxyURL+"/topics", nil)
+	req, err := http.NewRequest("GET", kafkaProxyAddress+"/topics", nil)
 	if err != nil {
 		log.Errorf("Creating kafka-proxy check resulted in error: %v", err.Error())
 		return nil, err

@@ -95,7 +95,7 @@ func TestMessageProcessingHappyPathIncrementsSuccessMeterForElasticsearchInclude
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL, client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -129,7 +129,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL + "/bulk", client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL + "/bulk", client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -243,16 +243,16 @@ func TestUnsuccessfulAddressComponentsExtraction(t *testing.T) {
 
 func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	extractedIngestionType, extractedUUID := extractMessageTypeAndId(validMessage.Headers)
+	extractedIngestionType, extractedUUID := extractMessageTypeAndID(validMessage.Headers)
 	assertion := assert.New(t)
 	assertion.Equal("organisations", extractedIngestionType)
 	assertion.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", extractedUUID)
 }
 
-func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
+func TestWriterAddressIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	writerUrl, err := resolveWriter(validMessageTypeOrganisations, correctWriterMappings)
-	request, reqURL, err := createWriteRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, writerUrl)
+	writerAddress, err := resolveWriter(validMessageTypeOrganisations, correctWriterMappings)
+	request, reqURL, err := createWriteRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, writerAddress)
 	assertion := assert.New(t)
 	assertion.NoError(err)
 	assertion.Equal("http://organisations-rw-neo4j-blue:8080/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqURL)
@@ -260,9 +260,9 @@ func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
 }
 
 func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
-	writerUrl, err := resolveWriter(invalidMessageType, correctWriterMappings)
+	writerAddress, err := resolveWriter(invalidMessageType, correctWriterMappings)
 	assertion := assert.New(t)
-	assertion.Equal("", writerUrl)
+	assertion.Equal("", writerAddress)
 	assertion.Error(err, "No configured writer for concept: "+invalidMessageType)
 }
 
