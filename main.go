@@ -1,21 +1,22 @@
 package main
 
 import (
-	standardLog "log"
-	"net/http"
-	"os"
-	"strings"
-	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
+	"fmt"
 	"io"
 	"io/ioutil"
+	standardLog "log"
+	"net"
+	"net/http"
+	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"net"
-	"fmt"
+
 	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
+	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
 	log "github.com/Sirupsen/logrus"
 	graphite "github.com/cyberdelia/go-metrics-graphite"
@@ -248,7 +249,7 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 }
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
-	ingestionType, uuid := extractMessageTypeAndId(msg.Headers)
+	ingestionType, uuid, transactionID := extractMessageTypeAndId(msg.Headers)
 
 	writerUrl, err := resolveWriter(ingestionType, ing.baseURLMappings)
 	if err != nil {
@@ -258,7 +259,7 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 		return err
 	}
 
-	err = sendToWriter(ingestionType, msg.Body, uuid, writerUrl)
+	err = sendToWriter(ingestionType, msg.Body, uuid, transactionID, writerUrl)
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -282,17 +283,21 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 
 }
 
-func extractMessageTypeAndId(headers map[string]string) (string, string) {
-	return headers["Message-Type"], headers["Message-Id"]
+func extractMessageTypeAndId(headers map[string]string) (string, string, string) {
+	return headers["Message-Type"], headers["Message-Id"], headers["X-Request-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWriter string) error {
+func sendToWriter(ingestionType string, msgBody string, uuid string, transactionID string, elasticWriter string) error {
 
 	request, reqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 	if err != nil {
 		log.Errorf("Cannot create write request: [%v]", err)
 	}
 	request.ContentLength = -1
+
+	if transactionID != "" {
+		request.Header.Set("X-Request-Id", transactionID)
+	}
 
 	log.Infof("Sending %s with uuid: %s to %s", ingestionType, uuid, elasticWriter)
 
