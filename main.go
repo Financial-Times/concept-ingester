@@ -268,7 +268,7 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	}
 
 	if ing.elasticWriterURL != "" {
-		err = sendToWriter(ingestionType, msg.Body, uuid, ing.elasticWriterURL)
+		err = sendToWriter(ingestionType, msg.Body, uuid, transactionID, ing.elasticWriterURL)
 		if err != nil {
 			failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-elasticsearch-FAILURE", metrics.DefaultRegistry)
 			failureMeter.Mark(1)

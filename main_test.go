@@ -127,7 +127,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL+"/bulk", client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL + "/bulk", client: http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -170,8 +170,9 @@ func TestWriterServiceSliceCreationLocal(t *testing.T) {
 
 func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	extractedIngestionType, extractedUUID := extractMessageTypeAndId(validMessage.Headers)
+	extractedIngestionType, extractedUUID, transactionID := extractMessageTypeAndId(validMessage.Headers)
 	assert := assert.New(t)
+	assert.Equal("tid_newid", transactionID)
 	assert.Equal("organisations", extractedIngestionType)
 	assert.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", extractedUUID)
 }
