@@ -3,13 +3,12 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	metrics "github.com/rcrowley/go-metrics"
 	"github.com/stretchr/testify/assert"
-
-	"strings"
 )
 
 var peopleService = "people-rw-neo4j-blue"
@@ -38,7 +37,7 @@ func TestMessageProcessingHappyPathIncrementsSuccessMeter(t *testing.T) {
 
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -65,7 +64,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeter(t *testing.T) {
 
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -93,7 +92,7 @@ func TestMessageProcessingHappyPathIncrementsSuccessMeterForElasticsearchInclude
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -127,7 +126,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL + "/bulk", client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterURL: server.URL + "/bulk", client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
