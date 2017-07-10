@@ -58,7 +58,7 @@ func (h *HealthCheck) queueHealthCheck() fthealth.Check {
 func (h *HealthCheck) writerHealthCheck() fthealth.Check {
 	return fthealth.Check{
 		BusinessImpact:   "Unable to connect to one or more configured writers",
-		Name:             "Check connectivity to writers which are a parameter in hieradata for this service",
+		Name:             "Check connectivity to writers",
 		PanicGuide:       "https://dewey.ft.com/concept-ingester.html",
 		Severity:         1,
 		TechnicalSummary: `Cannot connect to one or more configured writers. If this check fails, check that cluster is up and running and each configured writer returns a healthy gtg`,

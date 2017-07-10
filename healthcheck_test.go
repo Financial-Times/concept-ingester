@@ -112,7 +112,7 @@ func TestHealthCheckWithUnhappyConsumerWithElasticsearchWriter(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":false`, "Message queue proxy healthcheck should be unhappy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":true`, "Writers healthcheck should be happy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":true`, "Writers healthcheck should be happy")
 	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch","ok":true`, "Concept-rw-elasticsearch healthcheck should be happy")
 }
 
