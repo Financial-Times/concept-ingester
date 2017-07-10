@@ -50,7 +50,7 @@ func (h *HealthCheck) queueHealthCheck() fthealth.Check {
 		Severity:         1,
 		BusinessImpact:   "Unable to connect to kafka proxy.",
 		TechnicalSummary: "Cannot connect to kafka-proxy. If this check fails, check that cluster is up and running, proxy is healthy.",
-		PanicGuide:       "https://dewey.ft.com/concept-ingester.html",
+		PanicGuide:       "https://dewey.ft.com/kafka-proxy.html",
 		Checker:          h.consumer.ConnectivityCheck,
 	}
 }
@@ -70,7 +70,7 @@ func (h *HealthCheck) elasticHealthCheck() fthealth.Check {
 	return fthealth.Check{
 		BusinessImpact:   "Unable to connect to  elasticsearch concept writer",
 		Name:             "Check connectivity to concept-rw-elasticsearch",
-		PanicGuide:       "https://dewey.ft.com/concept-ingester.html",
+		PanicGuide:       "https://dewey.ft.com/up-crwes.html",
 		Severity:         1,
 		TechnicalSummary: `Cannot connect to elasticsearch concept writer. If this check fails, check that the configured writer returns a healthy gtg`,
 		Checker:          h.checkCanConnectToElasticsearchWriter,
