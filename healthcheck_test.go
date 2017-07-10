@@ -56,7 +56,7 @@ func TestHappyHealthCheckWithElasticsearchWriter(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":true`, "Message queue proxy healthcheck should be happy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":true`, "Writers healthcheck should be happy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":true`, "Writers healthcheck should be happy")
 	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch","ok":true`, "Concept-rw-elasticsearch healthcheck should be happy")
 }
 
@@ -82,7 +82,7 @@ func TestHappyHealthCheckWithoutElasticsearchWriter(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":true`, "Message queue proxy healthcheck should be happy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":true`, "Writers healthcheck should be happy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":true`, "Writers healthcheck should be happy")
 	assert.NotContains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch`, "The connectivity to the concept-rw-elasticsearch should not be checked")
 }
 
@@ -138,7 +138,7 @@ func TestHealthCheckWithUnhappyConsumerWithoutElasticsearchWriter(t *testing.T) 
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":false`, "Message queue proxy healthcheck should be unhappy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":true`, "Writers healthcheck should be happy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":true`, "Writers healthcheck should be happy")
 	assert.NotContains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch`, "The connectivity to the concept-rw-elasticsearch should not be checked")
 }
 
@@ -168,7 +168,7 @@ func TestHealthCheckWithUnhappyWriterAndWithElasticsearchWriter(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":true`, "Message queue proxy healthcheck should be happy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":false`, "Writers healthcheck should be unhappy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":false`, "Writers healthcheck should be unhappy")
 	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch","ok":true`, "Concept-rw-elasticsearch healthcheck should be happy")
 }
 
@@ -194,7 +194,7 @@ func TestHealthCheckWithUnhappyWriterAndWithoutElasticsearchWriter(t *testing.T)
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":true`, "Message queue proxy healthcheck should be happy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":false`, "Writers healthcheck should be unhappy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":false`, "Writers healthcheck should be unhappy")
 	assert.NotContains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch`, "The connectivity to the concept-rw-elasticsearch should not be checked")
 }
 
@@ -224,7 +224,7 @@ func TestHealthCheckUnhappyElasticsearchWriter(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "It should return HTTP 200 OK")
 	assert.Contains(t, w.Body.String(), `"name":"Message Queue Proxy Reachable","ok":true`, "Message queue proxy healthcheck should be happy")
-	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers which are a parameter in hieradata for this service","ok":true`, "Writers healthcheck should be happy")
+	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to writers","ok":true`, "Writers healthcheck should be happy")
 	assert.Contains(t, w.Body.String(), `"name":"Check connectivity to concept-rw-elasticsearch","ok":false`, "Concept-rw-elasticsearch healthcheck should be unhappy")
 }
 
