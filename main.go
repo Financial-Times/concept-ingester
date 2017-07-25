@@ -145,7 +145,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, httpClient)
+		consumer := queueConsumer.NewConsumer(consumerConfig, ing.readMessage, &httpClient)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
