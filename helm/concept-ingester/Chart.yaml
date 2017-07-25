@@ -1,4 +1,4 @@
 apiVersion: v1
 description: concept-ingester Helm chart for Kubernetes
 name: concept-ingester
-version: 2.1.1  # this entry can be left untouched as it is automatically handled by Jenkins pipeline
+version: 0.0.0  # this entry can be left untouched as it is automatically handled by Jenkins pipeline
