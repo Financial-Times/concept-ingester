@@ -15,27 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Financial-Times/go-fthealth/v1a"
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
-	log "github.com/sirupsen/logrus"
 	"github.com/asaskevich/govalidator"
-	graphite "github.com/cyberdelia/go-metrics-graphite"
+	"github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
+	log "github.com/Sirupsen/logrus"
 )
-
-var httpClient = http.Client{
-	Transport: &http.Transport{
-		MaxIdleConnsPerHost: 128,
-		Dial: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).Dial,
-	},
-}
 
 func main() {
 	log.SetLevel(log.InfoLevel)
@@ -115,6 +104,19 @@ func main() {
 		EnvVar: "THROTTLE"})
 
 	app.Action = func() {
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				MaxIdleConnsPerHost:   128,
+				TLSHandshakeTimeout:   3 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		}
+
 		consumerConfig := queueConsumer.QueueConfig{
 			Addrs:                []string{*kafkaProxyAddress},
 			Group:                *consumerGroupID,
@@ -138,6 +140,7 @@ func main() {
 			baseURLMappings:      writerMappings,
 			elasticWriterAddress: elasticsearchWriterBulkMapping,
 			ticker:               time.NewTicker(time.Second / time.Duration(*throttle)),
+			client:               httpClient,
 		}
 
 		err = outputMetricsIfRequired(*graphiteTCPAuthority, *graphitePrefix, *logMetrics)
@@ -155,7 +158,7 @@ func main() {
 			wg.Done()
 		}()
 
-		go runServer(ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, *kafkaProxyAddress, *topic)
+		go runServer(consumer, ing.baseURLMappings, elasticsearchWriterBasicMapping, *port, httpClient)
 
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -214,15 +217,16 @@ func extractAddressHost(address string) (string, error) {
 	return authoritySlice[0], nil
 }
 
-func runServer(baseURLMappings map[string]string, elasticsearchWriterAddress string, port string, kafkaProxyAddress string, topic string) {
-
-	handlers := httpHandlers{baseURLMappings, elasticsearchWriterAddress, kafkaProxyAddress, topic}
-	var r http.Handler
+func runServer(consumer queueConsumer.MessageConsumer, baseURLMappings map[string]string, elasticsearchWriterAddress string, port string, client *http.Client) {
+	var includeElasticsearchWriter bool
 	if elasticsearchWriterAddress != "" {
-		r = router(handlers, true)
-	} else {
-		r = router(handlers, false)
+		includeElasticsearchWriter = true
 	}
+	eWC := &ElasticsearchWriterConfig{
+		includeElasticsearchWriter: includeElasticsearchWriter,
+		elasticsearchWriterUrl:     elasticsearchWriterAddress,
+	}
+	r := router(NewHealthCheck(consumer, getBaseURLs(baseURLMappings), eWC, client))
 
 	// The following endpoints should not be monitored or logged (varnish calls one of these every second, depending on config)
 	// The top one of these build info endpoints feels more correct, but the lower one matches what we have in Dropwizard,
@@ -240,17 +244,19 @@ func runServer(baseURLMappings map[string]string, elasticsearchWriterAddress str
 	}
 }
 
-func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
-
-	servicesRouter := mux.NewRouter()
-	checks := []v1a.Check{hh.kafkaProxyHealthCheck(), hh.writerHealthCheck()}
-
-	if includeElasticsearchWriter {
-		checks = append(checks, hh.elasticHealthCheck())
+func getBaseURLs(baseURLMappings map[string]string) []string {
+	URLs := make([]string, 0, len(baseURLMappings))
+	for _, url := range baseURLMappings {
+		URLs = append(URLs, url)
 	}
+	return URLs
+}
 
-	servicesRouter.HandleFunc("/__health", v1a.Handler("ConceptIngester Healthchecks", "Checks for accessing writer", checks...))
-	servicesRouter.HandleFunc("/__gtg", hh.goodToGo)
+func router(hc *HealthCheck) http.Handler {
+	servicesRouter := mux.NewRouter()
+
+	servicesRouter.HandleFunc("/__health", hc.Health())
+	servicesRouter.HandleFunc(status.GTGPath, status.NewGoodToGoHandler(hc.GTG))
 
 	var monitoringRouter http.Handler = servicesRouter
 	monitoringRouter = httphandlers.TransactionAwareRequestLoggingHandler(log.StandardLogger(), monitoringRouter)
@@ -262,7 +268,7 @@ func router(hh httpHandlers, includeElasticsearchWriter bool) http.Handler {
 type ingesterService struct {
 	baseURLMappings      map[string]string
 	elasticWriterAddress string
-	client               http.Client
+	client               *http.Client
 	ticker               *time.Ticker
 }
 
@@ -275,7 +281,7 @@ func (ing ingesterService) readMessage(msg queueConsumer.Message) {
 }
 
 func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
-	ingestionType, uuid := extractMessageTypeAndID(msg.Headers)
+	ingestionType, uuid, transactionID := extractMessageTypeAndID(msg.Headers)
 
 	writerAddress, err := resolveWriter(ingestionType, ing.baseURLMappings)
 	if err != nil {
@@ -286,7 +292,8 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	}
 
 	log.Infof("Processing message to service: %v", writerAddress)
-	err = sendToWriter(ingestionType, msg.Body, uuid, writerAddress)
+	err = sendToWriter(ingestionType, msg.Body, uuid, transactionID, writerAddress, ing.client)
+
 	if err != nil {
 		failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-FAILURE", metrics.DefaultRegistry)
 		failureMeter.Mark(1)
@@ -295,7 +302,7 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 	}
 
 	if ing.elasticWriterAddress != "" {
-		err = sendToWriter(ingestionType, msg.Body, uuid, ing.elasticWriterAddress)
+		err = sendToWriter(ingestionType, msg.Body, uuid, transactionID, ing.elasticWriterAddress, ing.client)
 		if err != nil {
 			failureMeter := metrics.GetOrRegisterMeter(ingestionType+"-elasticsearch-FAILURE", metrics.DefaultRegistry)
 			failureMeter.Mark(1)
@@ -310,21 +317,26 @@ func (ing ingesterService) processMessage(msg queueConsumer.Message) error {
 
 }
 
-func extractMessageTypeAndID(headers map[string]string) (string, string) {
-	return headers["Message-Type"], headers["Message-Id"]
+func extractMessageTypeAndID(headers map[string]string) (string, string, string) {
+	return headers["Message-Type"], headers["Message-Id"], headers["X-Request-Id"]
 }
 
-func sendToWriter(ingestionType string, msgBody string, uuid string, elasticWriter string) error {
+func sendToWriter(ingestionType string, msgBody string, uuid string, transactionID string, elasticWriter string, client *http.Client) error {
 	log.Infof("Sending message to writer: %v", elasticWriter)
+
 	request, reqURL, err := createWriteRequest(ingestionType, strings.NewReader(msgBody), uuid, elasticWriter)
 	if err != nil {
 		log.Errorf("Cannot create write request: [%v]", err)
 	}
 	request.ContentLength = -1
 
+	if transactionID != "" {
+		request.Header.Set("X-Request-Id", transactionID)
+	}
+
 	log.Infof("Sending %s with uuid: %s to %s", ingestionType, uuid, elasticWriter)
 
-	resp, reqErr := httpClient.Do(request)
+	resp, reqErr := client.Do(request)
 	if reqErr != nil {
 		return fmt.Errorf("reqURL=[%s] concept=[%s] uuid=[%s] error=[%v]", reqURL, ingestionType, uuid, reqErr)
 	}

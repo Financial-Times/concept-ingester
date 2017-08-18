@@ -37,7 +37,7 @@ func TestMessageProcessingHappyPathIncrementsSuccessMeter(t *testing.T) {
 
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -64,7 +64,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeter(t *testing.T) {
 
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -92,7 +92,7 @@ func TestMessageProcessingHappyPathIncrementsSuccessMeterForElasticsearchInclude
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL, client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL, client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -126,7 +126,7 @@ func TestMessageProcessingUnhappyPathIncrementsFailureMeterWithElasticsearch(t *
 	successMeterInitialCount, failureMeterInitialCount := getCounts()
 	failureMeterInitialCountForElasticsearch := getElasticsearchCount()
 
-	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL + "/bulk", client: http.Client{}}
+	ing := ingesterService{baseURLMappings: mockedWriterMappings, elasticWriterAddress: server.URL + "/bulk", client: &http.Client{}}
 
 	err := ing.processMessage(createMessage(uuid, validMessageTypeOrganisations))
 
@@ -225,10 +225,11 @@ func TestUnsuccessfulAddressHostExtraction(t *testing.T) {
 
 func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	extractedIngestionType, extractedUUID := extractMessageTypeAndID(validMessage.Headers)
-	assertion := assert.New(t)
-	assertion.Equal("organisations", extractedIngestionType)
-	assertion.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", extractedUUID)
+	extractedIngestionType, extractedUUID, transactionID := extractMessageTypeAndID(validMessage.Headers)
+	assert := assert.New(t)
+	assert.Equal("tid_newid", transactionID)
+	assert.Equal("organisations", extractedIngestionType)
+	assert.Equal("5e0ad5e5-c3d4-387d-9875-ec15501808e5", extractedUUID)
 }
 
 func TestWriterAddressIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
