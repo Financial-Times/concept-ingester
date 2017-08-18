@@ -50,6 +50,12 @@
 			"revisionTime": "2017-05-15T10:45:16Z"
 		},
 		{
+			"checksumSHA1": "6G14E8R8Dxl2BiaCKq5JfIqLnS0=",
+			"path": "github.com/asaskevich/govalidator",
+			"revision": "15028e809df8c71964e8efa6c11e81d5c0262302",
+			"revisionTime": "2017-07-30T20:26:45Z"
+		},
+		{
 			"checksumSHA1": "/6H1rhQmbq8mEP29pnmLmdwBKUE=",
 			"path": "github.com/cyberdelia/go-metrics-graphite",
 			"revision": "39f87cc3b432bbb898d7c643c0e93cac2bc865ad",
