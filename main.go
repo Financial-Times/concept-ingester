@@ -19,7 +19,7 @@ import (
 	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/asaskevich/govalidator"
 	graphite "github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
