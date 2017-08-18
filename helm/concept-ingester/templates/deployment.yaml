@@ -26,7 +26,7 @@ spec:
         env: 
         - name: PORT
           value: "8080"
-        - name: KAFKA_PROXY_ADDRESS
+        - name: VULCAN_ADDR
           valueFrom:
             configMapKeyRef:
               name: global-config
@@ -39,8 +39,6 @@ spec:
           value: "http://content-rw-neo4j:8080,http://people-rw-neo4j:8080,http://organisations-rw-neo4j:8080,http://memberships-rw-neo4j:8080,http://brands-rw-neo4j:8080,http://roles-rw-neo4j:8080,http://financial-instruments-rw-neo4j:8080,http://industry-classifications-rw-neo4j:8080"
         - name: ELASTICSEARCH_WRITER_ADDRESS
           value: "http://concept-rw-elasticsearch:8080"
-        - name: QUEUE_ID
-          value: "kafka"
         - name: GRAPHITE_TCP_AUTHORITY
           valueFrom:
             configMapKeyRef:
@@ -62,12 +60,12 @@ spec:
           tcpSocket: 
             port: 8080 
           initialDelaySeconds: 5 
-#        readinessProbe: 
-#          httpGet: 
-#            port: 8080 
-#            path: "/__gtg" 
-#          initialDelaySeconds: 15 
-#          periodSeconds: 30 
+        readinessProbe: 
+          httpGet: 
+            port: 8080 
+            path: "/__gtg" 
+          initialDelaySeconds: 15 
+          periodSeconds: 30 
         resources: 
 {{ toYaml .Values.resources | indent 12 }}
 
