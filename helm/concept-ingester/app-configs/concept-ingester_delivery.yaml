@@ -1,0 +1,7 @@
+# Values used for the deployed application.
+replicaCount: 2
+service:
+  name: concept-ingester
+env:
+  graphite:
+    prefix: "coco.services.k8s.concept-ingester"
