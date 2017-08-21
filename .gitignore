@@ -21,7 +21,7 @@ _cgo_export.*
 
 _testmain.go
 
-concept-ingester
+/concept-ingester
 
 *.exe
 *.test
