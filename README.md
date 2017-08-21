@@ -21,7 +21,7 @@ Some comments about configuration parameters:
 * --services-list   comma separated list of neo4j writers - do not append a port for running in the cluster
 * --elastic-service elasticsearch writer name
 * --topic, --consumer_group_id, --consumer_autocommit_enable, --consumer_offset, --consumer_queue_id see the message-queue-gonsumer library  
-
+* the `--consumer_queue_id/QUEUE_ID` is used as a switch between clusters with vulcan-routing and those without - if this param is set, we assume vulcan-based routing.
 ## Healthchecks
 * Check connectivity [http://localhost:8080/__health](http://localhost:8080/__health)
 * Good to Go: [http://localhost:8080/__gtg](http://localhost:8080/__gtg)

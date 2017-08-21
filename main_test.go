@@ -6,17 +6,25 @@ import (
 	"strings"
 	"testing"
 
+	"fmt"
+
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
-	metrics "github.com/rcrowley/go-metrics"
+	"github.com/rcrowley/go-metrics"
 	"github.com/stretchr/testify/assert"
 )
 
-var peopleService = "people-rw-neo4j-blue"
-var organisationsService = "organisations-rw-neo4j-blue"
+var peopleServiceVulcanRouting = "people-rw-neo4j"
+var organisationsServiceVulcanRouting = "organisations-rw-neo4j"
+var correctWriterMappingsVulcanRouting = map[string]string{
+	"people-rw-neo4j":        "http://localhost:8080/__people-rw-neo4j",
+	"organisations-rw-neo4j": "http://localhost:8080/__organisations-rw-neo4j",
+}
 
+var peopleService = "http://people-rw-neo4j:8080"
+var organisationsService = "http://organisations-rw-neo4j:8080"
 var correctWriterMappings = map[string]string{
-	"people-rw-neo4j-blue":        "http://localhost:8080/__people-rw-neo4j-blue",
-	"organisations-rw-neo4j-blue": "http://localhost:8080/__organisations-rw-neo4j-blue",
+	"http://people-rw-neo4j:8080":        "http://people-rw-neo4j:8080",
+	"http://organisations-rw-neo4j:8080": "http://organisations-rw-neo4j:8080",
 }
 
 var uuid = "5e0ad5e5-c3d4-387d-9875-ec15501808e5"
@@ -152,16 +160,37 @@ func getElasticsearchCount() int64 {
 }
 
 func TestWriterServiceSliceCreationCluster(t *testing.T) {
-	writerMappings := createWriterMappings(peopleService+","+organisationsService, "http://localhost:8080")
 	assert := assert.New(t)
-	assert.EqualValues(correctWriterMappings, writerMappings, "Should have two mappings")
+	tests := []struct {
+		name                   string
+		services               string
+		expectedWriterMappings map[string]string
+		vulcanRouting          bool
+	}{
+		{"Writer URLs parsed and composed correctly for clusters WITHOUT Vulcan routing",
+			peopleService + "," + organisationsService,
+			correctWriterMappings,
+			false,
+		},
+		{
+			"Writer URLs parsed and composed correctly for clusters WITH Vulcan routing",
+			peopleServiceVulcanRouting + "," + organisationsServiceVulcanRouting,
+			correctWriterMappingsVulcanRouting,
+			true,
+		},
+	}
+
+	for _, test := range tests {
+		actualWriterMappings := createWriterMappings(test.services, "http://localhost:8080", test.vulcanRouting)
+		assert.EqualValues(test.expectedWriterMappings, actualWriterMappings, fmt.Sprintf("%s: Service mappings incorrect.", test.name))
+	}
 }
 
 func TestWriterServiceSliceCreationLocal(t *testing.T) {
-	writerMappings := createWriterMappings(peopleService+":7070,"+organisationsService+":7080", "http://localhost:8080")
+	writerMappings := createWriterMappings(peopleServiceVulcanRouting+":7070,"+organisationsServiceVulcanRouting+":7080", "http://localhost:8080", true)
 	localWriterMappings := map[string]string{
-		"people-rw-neo4j-blue:7070":        "http://localhost:7070",
-		"organisations-rw-neo4j-blue:7080": "http://localhost:7080",
+		"people-rw-neo4j:7070":        "http://localhost:7070",
+		"organisations-rw-neo4j:7080": "http://localhost:7080",
 	}
 	assert := assert.New(t)
 	assert.EqualValues(localWriterMappings, writerMappings, "Should have two mappings")
@@ -177,20 +206,58 @@ func TestUuidAndMessageTypeAreExtractedFromMessage(t *testing.T) {
 }
 
 func TestWriterUrlIsResolvedCorrectlyAndRequestIsNotNull(t *testing.T) {
-	validMessage := createMessage(uuid, validMessageTypeOrganisations)
-	writerUrl, err := resolveWriter(validMessageTypeOrganisations, correctWriterMappings)
-	request, reqURL, err := createWriteRequest(validMessageTypeOrganisations, strings.NewReader(validMessage.Body), uuid, writerUrl)
 	assert := assert.New(t)
-	assert.NoError(err)
-	assert.Equal("http://localhost:8080/__organisations-rw-neo4j-blue/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5", reqURL)
-	assert.NotNil(request, "Request is nil")
+
+	tests := []struct {
+		name           string
+		validMessage   queueConsumer.Message
+		mappings       map[string]string
+		expectedReqURL string
+	}{
+		{
+			"Writer request is composed correctly in cluster WITH vulcan routing",
+			createMessage(uuid, validMessageTypeOrganisations),
+			correctWriterMappingsVulcanRouting,
+			"http://localhost:8080/__organisations-rw-neo4j/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5",
+		},
+		{
+			"Writer request is composed correctly in cluster WITHOUT vulcan routing",
+			createMessage(uuid, validMessageTypeOrganisations),
+			correctWriterMappings,
+			"http://organisations-rw-neo4j:8080/organisations/5e0ad5e5-c3d4-387d-9875-ec15501808e5",
+		},
+	}
+
+	for _, test := range tests {
+		writerUrl, err := resolveWriter(validMessageTypeOrganisations, test.mappings)
+		request, actualReqURL, err := createWriteRequest(validMessageTypeOrganisations, strings.NewReader(test.validMessage.Body), uuid, writerUrl)
+		assert.NoError(err, fmt.Sprintf("%s: Creating write request returns an error.", test.name))
+		assert.Equal(test.expectedReqURL, actualReqURL, fmt.Sprintf("%s: Writer request URL is incorrect.", test.name))
+		assert.NotNil(request, fmt.Sprintf("%s: Writer request is nil.", test.name))
+	}
 }
 
 func TestErrorIsThrownWhenIngestionTypeMatchesNoWriters(t *testing.T) {
-	writerUrl, err := resolveWriter(invalidMessageType, correctWriterMappings)
 	assert := assert.New(t)
-	assert.Equal("", writerUrl)
-	assert.Error(err, "No configured writer for concept: "+invalidMessageType)
+	tests := []struct {
+		name     string
+		mappings map[string]string
+	}{
+		{
+			"Error is thrown when ingestion type matches no writers in a cluster WITHOUT vulcan routing",
+			correctWriterMappings,
+		},
+		{
+			"Error is thrown when ingestion type matches no writers in a cluster WITH vulcan routing",
+			correctWriterMappingsVulcanRouting,
+		},
+	}
+
+	for _, test := range tests {
+		writerUrl, err := resolveWriter(invalidMessageType, test.mappings)
+		assert.Equal("", writerUrl, fmt.Sprintf("%s: Writer URL is not empty.", test.name))
+		assert.Error(err, "No configured writer for concept: "+invalidMessageType, fmt.Sprintf("%s: Error not returned from resolving writer.", test.name))
+	}
 }
 
 func createMessage(messageID string, messageType string) queueConsumer.Message {

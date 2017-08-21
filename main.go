@@ -126,12 +126,17 @@ func main() {
 			ConcurrentProcessing: true,
 		}
 
-		writerMappings := createWriterMappings(*services, *vulcanAddr)
+		vulcanBasedRouting := true
+		if len(*consumerQueue) == 0 {
+			vulcanBasedRouting = false
+		}
+
+		writerMappings := createWriterMappings(*services, *vulcanAddr, vulcanBasedRouting)
 
 		var elasticsearchWriterBasicMapping string
 		var elasticsearchWriterBulkMapping string
 		if *elasticService != "" {
-			elasticsearchWriterBasicMapping = resolveWriterURL(*elasticService, *vulcanAddr)
+			elasticsearchWriterBasicMapping = resolveWriterURL(*elasticService, *vulcanAddr, vulcanBasedRouting)
 			if elasticsearchWriterBasicMapping != "" {
 				elasticsearchWriterBulkMapping = elasticsearchWriterBasicMapping + "/bulk"
 			}
@@ -173,17 +178,20 @@ func main() {
 	app.Run(os.Args)
 }
 
-func createWriterMappings(services string, vulcanAddr string) map[string]string {
+func createWriterMappings(services string, vulcanAddr string, vulcanBasedRouting bool) map[string]string {
 	writerMappings := make(map[string]string)
 	serviceSlice := strings.Split(services, ",")
 	for _, service := range serviceSlice {
-		writerURL := resolveWriterURL(service, vulcanAddr)
+		writerURL := resolveWriterURL(service, vulcanAddr, vulcanBasedRouting)
 		writerMappings[service] = writerURL
 		log.Infof("Using writer url: %s for service: %s", writerURL, service)
 	}
 	return writerMappings
 }
-func resolveWriterURL(service string, vulcanAddr string) string {
+func resolveWriterURL(service string, vulcanAddr string, vulcanBasedRouting bool) string {
+	if !vulcanBasedRouting {
+		return service
+	}
 	wr := strings.Split(service, ":")
 	if len(wr) > 1 {
 		return "http://localhost:" + wr[1]
