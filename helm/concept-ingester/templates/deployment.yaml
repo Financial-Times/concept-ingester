@@ -37,7 +37,7 @@ spec:
         - name: TOPIC
           value: "Concept"
         - name: SERVICES
-          value: "http://content-rw-neo4j:8080,http://people-rw-neo4j:8080,http://organisations-rw-neo4j:8080,http://memberships-rw-neo4j:8080,http://roles-rw-neo4j:8080,http://financial-instruments-rw-neo4j:8080,http://industry-classifications-rw-neo4j:8080"
+          value: "http://people-rw-neo4j:8080,http://organisations-rw-neo4j:8080,http://memberships-rw-neo4j:8080,http://roles-rw-neo4j:8080,http://financial-instruments-rw-neo4j:8080,http://industry-classifications-rw-neo4j:8080"
         - name: ELASTICSEARCH_WRITER
           value: "http://concept-rw-elasticsearch:8080"
         - name: GRAPHITE_TCP_AUTHORITY
