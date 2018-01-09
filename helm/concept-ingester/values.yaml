@@ -9,6 +9,8 @@ image:
   repository: coco/concept-ingester
   pullPolicy: IfNotPresent
 resources:
+  requests:
+    memory: 30Mi
   limits:
     memory: 256Mi
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	fthealth "github.com/Financial-Times/go-fthealth/v1_1"
 	"github.com/Financial-Times/message-queue-gonsumer/consumer"
@@ -35,13 +36,16 @@ func (h *HealthCheck) Health() func(w http.ResponseWriter, r *http.Request) {
 	if h.elasticsearchConf.includeElasticsearchWriter {
 		checks = append(checks, h.elasticHealthCheck())
 	}
-	hc := fthealth.HealthCheck{
-		SystemCode:  "concept-ingester",
-		Name:        "Concept Ingester",
-		Description: "Consumes Concept instances and forwards them to respective database writers for each concept type.",
-		Checks:      checks,
+	healthCheck := fthealth.TimedHealthCheck{
+		HealthCheck: fthealth.HealthCheck{
+			SystemCode:  "concept-ingester",
+			Name:        "Concept Ingester",
+			Description: "Consumes Concept instances and forwards them to respective database writers for each concept type.",
+			Checks:      checks,
+		},
+		Timeout: 10 * time.Second,
 	}
-	return fthealth.Handler(hc)
+	return fthealth.Handler(healthCheck)
 }
 
 func (h *HealthCheck) queueHealthCheck() fthealth.Check {
