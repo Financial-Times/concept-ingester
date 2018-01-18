@@ -22,6 +22,10 @@ Some comments about configuration parameters:
 * --elastic-service elasticsearch writer name
 * --topic, --consumer_group_id, --consumer_autocommit_enable, --consumer_offset, --consumer_queue_id see the message-queue-gonsumer library  
 * the `--consumer_queue_id/QUEUE_ID` is used as a switch between clusters with vulcan-routing and those without - if this param is set, we assume vulcan-based routing.
+## NOTE
+
+This concept publishing pipeline is nearing end of life. It can currently only used to publish all organisations, factset people and authors. Most TME concepts have been switched over to use the new concept publishing pipeline described in detail [here](https://sites.google.com/a/ft.com/universal-publishing/documentation/introduction-to-metadata) which are published via the [basic-tme-transformer](https://github.com/Financial-Times/basic-tme-transformer)
+
 ## Healthchecks
 * Check connectivity [http://localhost:8080/__health](http://localhost:8080/__health)
 * Good to Go: [http://localhost:8080/__gtg](http://localhost:8080/__gtg)
