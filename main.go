@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Financial-Times/http-handlers-go/httphandlers"
 	queueConsumer "github.com/Financial-Times/message-queue-gonsumer/consumer"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
-	log "github.com/Sirupsen/logrus"
 	"github.com/cyberdelia/go-metrics-graphite"
 	"github.com/gorilla/mux"
 	"github.com/jawher/mow.cli"
 	"github.com/rcrowley/go-metrics"
-	"github.com/Financial-Times/http-handlers-go/httphandlers"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
