@@ -7,7 +7,6 @@ jobs:
     environment: 
       CIRCLE_TEST_REPORTS: /tmp/test-reports
       CIRCLE_ARTIFACTS: /tmp/artifacts
-  
     steps: 
       - checkout
       - run: 
@@ -42,3 +41,21 @@ jobs:
       - store_artifacts:
           path: /tmp/artifacts
           destination: build
+  docker_build:
+    working_directory: /concept-ingester
+    docker:
+      - image: docker:18.03
+    steps:
+      - checkout
+      - setup_docker_engine
+      - run:
+          name: Build Dockerfile
+          command: docker build .
+workflows:
+  version: 2
+  tests_and_docker:
+    jobs:
+      - build
+      - docker_build:
+          requires:
+            - build
