@@ -1,3 +1,5 @@
+*DECOMISSIONED*
+
 # Concept Ingester
 
 [![Circle CI](https://circleci.com/gh/Financial-Times/concept-ingester.svg?style=shield)](https://circleci.com/gh/Financial-Times/concept-ingester)[![Go Report Card](https://goreportcard.com/badge/github.com/Financial-Times/concept-ingester)](https://goreportcard.com/report/github.com/Financial-Times/concept-ingester) [![Coverage Status](https://coveralls.io/repos/github/Financial-Times/concept-ingester/badge.svg)](https://coveralls.io/github/Financial-Times/concept-ingester)
